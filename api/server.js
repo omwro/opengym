@@ -2,18 +2,33 @@
    No framework, JSON-file storage, signed session cookies.               */
 import http from 'node:http';
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import {
   generateRegistrationOptions, verifyRegistrationResponse,
   generateAuthenticationOptions, verifyAuthenticationResponse
 } from '@simplewebauthn/server';
 import webpush from 'web-push';
-import * as coachConfig from './coach/config.js';
-import * as coachJobs from './coach/jobs.js';
-import { coachRoutes } from './coach/routes.js';
-import { startCadence } from './coach/cadence.js';
 import { teamRoutes } from './teams.js';
+import { store, BACKEND } from './store.js';
+
+// Two separate questions, deliberately not one flag:
+//
+//   SERVERLESS — is something else handling the socket? Set by the serverless entry point.
+//                It governs whether this module listens on a port and starts background
+//                timers, and nothing else.
+//   COACH      — can the AI Coach run at all? It owns a directory, spawns child processes
+//                under a separate user and reviews on a schedule, so it needs both a
+//                filesystem backend and a process that outlives a request. Where it cannot
+//                run it is not merely disabled: it is never imported, keeping its very large
+//                provider SDKs out of the deployment.
+//
+// Keeping them apart is what lets a long-lived server run against Supabase — a perfectly
+// reasonable way to self-host, and the only way to exercise that backend locally.
+export const SERVERLESS = /^(1|true|yes|on)$/i.test(process.env.SERVERLESS || '');
+const COACH = BACKEND === 'fs' && !SERVERLESS;
+const coachConfig = COACH ? await import('./coach/config.js') : null;
+const coachJobs = COACH ? await import('./coach/jobs.js') : null;
+const { coachRoutes } = COACH ? await import('./coach/routes.js') : { coachRoutes: () => ({}) };
+const { startCadence } = COACH ? await import('./coach/cadence.js') : { startCadence: () => {} };
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -33,41 +48,58 @@ const MAX_BODY = 5 * 1024 * 1024;
 // Secure cookies require HTTPS; over plain http://localhost the flag would drop the cookie
 const SECURE = /^https:/i.test(ORIGIN) ? ' Secure;' : '';
 
-fs.mkdirSync(DATA, { recursive: true });
-// 0700 is what stops the unprivileged user that Coach jobs run as from reading any of this —
-// state files, db.json, the session secret, the provider credential. The Agent SDK process gets
-// its job payload in a temp directory and nothing else. Best-effort: a bind-mounted host directory
-// may refuse the chmod, and that is not a reason to refuse to boot.
-try { fs.chmodSync(DATA, 0o700); } catch { /* host filesystem says no — carry on */ }
-
 /* ---------- secret + db ---------- */
-const secretFile = path.join(DATA, 'secret');
-if (!fs.existsSync(secretFile)) fs.writeFileSync(secretFile, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
-const SECRET = fs.readFileSync(secretFile, 'utf8').trim();
+// Where any of this actually lives is store.js's problem: a directory on disk when openGym
+// owns a long-lived process, a `kv` table when it is deployed somewhere without one.
+const SECRET = await store.secret();
 
-const dbFile = path.join(DATA, 'db.json');
-let db = { users: [], creds: [], subs: [], invites: [], teams: [] };
-try { db = JSON.parse(fs.readFileSync(dbFile, 'utf8')); } catch {}
-db.subs = db.subs || [];
-db.invites = db.invites || [];
-db.teams = db.teams || [];
+// `const`, and refilled in place on reload: the route modules are handed this object once at
+// startup, so rebinding the name would leave them reading a copy that never changes again.
+const db = { users: [], creds: [], subs: [], invites: [], teams: [] };
+let dbVersion = 0;
+async function reloadDb() {
+  const loaded = await store.loadDb();
+  dbVersion = loaded.version;
+  for (const k of Object.keys(db)) delete db[k];
+  Object.assign(db, { users: [], creds: [], subs: [], invites: [], teams: [] }, loaded.db);
+  return db;
+}
+await reloadDb();
+
 const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(user.id));
-function saveDb() { atomicWrite(dbFile, JSON.stringify(db, null, 2)); }
-function atomicWrite(file, content) {
-  const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, content);
-  fs.renameSync(tmp, file);
+// Routes call this synchronously, as they always have. Under the fs backend the write is done
+// by the time the next line runs; under a remote store it is a promise the request must settle
+// before replying, which is what `flushDb` is for — the serverless entry awaits it and retries
+// the whole request if the document moved underneath it.
+let dbWrite = null;
+function saveDb() {
+  // fs: the adapter has no awaits, so the rename has happened by the time this returns —
+  // exactly the durability the file-backed version always had.
+  if (BACKEND === 'fs') { store.saveDb(db, dbVersion); return; }
+  const chain = (dbWrite || Promise.resolve()).then(() => store.saveDb(db, dbVersion)).then(v => { dbVersion = v; });
+  dbWrite = chain;
+  // Callers of saveDb() are synchronous and never see this promise. Under SERVERLESS that is
+  // fine — flushDb() awaits it and the entry point replays the request. In a long-lived server
+  // nothing awaits it at all, so a refused write would surface as an unhandled rejection and,
+  // under Node's default, kill the process. Recover instead: resync from the store so this
+  // instance stops working from a version that has moved on.
+  //
+  // Being refused at all means something else is writing the same database. One long-lived
+  // server owning it never conflicts; two writers (a local server pointed at the deployment's
+  // database, say) is the case this catches, and the log line says so.
+  chain.catch(async err => {
+    if (SERVERLESS) return;             // flushDb() is the handler there, and it retries properly
+    console.error('db write refused — another writer has this database. Resyncing.', err.message);
+    try { await reloadDb(); } catch (e) { console.error('resync failed', e.message); }
+  });
 }
-const stateFile = uid => path.join(DATA, 'state-' + uid.replace(/[^a-zA-Z0-9_-]/g, '') + '.json');
-function readState(uid) {
-  try { return JSON.parse(fs.readFileSync(stateFile(uid), 'utf8')); } catch { return null; }
-}
+/** Settle any pending db write. Throws ConflictError if another request got there first. */
+async function flushDb() { const p = dbWrite; dbWrite = null; if (p) await p; }
+
+const readState = uid => store.readState(uid);
 
 /* ---------- push notifications (Web Push / VAPID) ---------- */
-const vapidFile = path.join(DATA, 'vapid.json');
-let vapid;
-try { vapid = JSON.parse(fs.readFileSync(vapidFile, 'utf8')); }
-catch { vapid = webpush.generateVAPIDKeys(); fs.writeFileSync(vapidFile, JSON.stringify(vapid), { mode: 0o600 }); }
+let vapid = await store.vapid(() => webpush.generateVAPIDKeys());
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || (SECURE ? ORIGIN : 'mailto:admin@localhost');
 webpush.setVapidDetails(VAPID_SUBJECT, vapid.publicKey, vapid.privateKey);
 
@@ -133,10 +165,13 @@ function userNow(tz) {
     return { date, hhmm: `${g('hour')}:${g('minute')}`, weekday: new Date(date + 'T12:00:00Z').getUTCDay() };
   } catch { return null; } // unknown/invalid tz string — skip this user rather than guess
 }
-setInterval(() => {
+// A sweep, not a schedule: it only means anything in a process that keeps running, so on a
+// serverless host it is skipped entirely rather than started in a function that is about to be
+// frozen. (Rest-timer push still works there — that one is driven by a request.)
+if (!SERVERLESS) setInterval(async () => {
   for (const user of db.users) {
     if (!db.subs.some(s => s.userId === user.id)) continue;
-    const S = readState(user.id);
+    const S = await readState(user.id);
     if (!S?.reminder?.on) continue;
     const now = userNow(S.reminder.tz || 'UTC');
     if (!now || S.reminder.time !== now.hhmm) continue;
@@ -156,7 +191,9 @@ setInterval(() => {
   }
 // Checked every 10s (not 60s) — ticks aren't aligned to the top of the minute, so a 60s
 // interval could sit on your target minute for up to 59s before noticing. 10s caps that at ~9s.
-}, 10000).unref();
+// unref'd like the other timers here: a pending reminder check is not a reason to keep the
+// process alive, and it is what lets this module be imported by a test that then exits.
+}, 10000)?.unref();
 
 /* ---------- sessions (signed cookie) ---------- */
 function sign(payload) {
@@ -236,6 +273,13 @@ function json(res, code, obj, extraHeaders) {
   res.end(body);
 }
 function readBody(req) {
+  // Serverless runtimes commonly parse and consume the request stream before handing it over;
+  // when they have, the stream is empty and `req.body` is the only copy. Under node:http this
+  // is always undefined and the original path runs.
+  if (req.body !== undefined && req.body !== null) {
+    try { return Promise.resolve(typeof req.body === 'string' ? (req.body ? JSON.parse(req.body) : {}) : req.body); }
+    catch { return Promise.reject(new Error('bad json')); }
+  }
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
     req.on('data', d => {
@@ -266,7 +310,7 @@ function livePresence(uid) {
 setInterval(() => { for (const [k, v] of presence) if (Date.now() - v.updatedAt > PRESENCE_TTL) presence.delete(k); }, 30000).unref();
 
 /* ---------- routes ---------- */
-const routes = {
+export const routes = {
   'GET /api/health': async (req, res) => json(res, 200, { ok: true, users: db.users.length }),
 
   // Public config the login screen needs before anyone is signed in. `coach` is absent unless
@@ -274,7 +318,7 @@ const routes = {
   // single flag every piece of Coach UI hangs off, so an unconfigured instance is byte-for-byte
   // the app it was before the feature existed.
   'GET /api/config': async (req, res) => {
-    const coach = coachConfig.publicConfig();
+    const coach = coachConfig ? coachConfig.publicConfig() : null;
     json(res, 200, { invite_only: INVITE_ONLY, ...(coach ? { coach } : {}) });
   },
 
@@ -395,10 +439,7 @@ const routes = {
   'GET /api/data': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
-    try {
-      const state = JSON.parse(fs.readFileSync(stateFile(user.id), 'utf8'));
-      json(res, 200, { state });
-    } catch { json(res, 200, { state: null }); }
+    json(res, 200, { state: (await readState(user.id)) ?? null });
   },
 
   'PUT /api/data': async (req, res) => {
@@ -407,7 +448,7 @@ const routes = {
     const body = await readBody(req);
     if (!body.state || typeof body.state !== 'object') return json(res, 400, { error: 'state required' });
     delete body.state.active;              // in-progress workouts stay device-local
-    atomicWrite(stateFile(user.id), JSON.stringify(body.state));
+    await store.writeState(user.id, body.state);
     json(res, 200, { ok: true, ts: body.state._ts || null });
   },
 
@@ -479,8 +520,10 @@ const routes = {
   // One row per user, cheap enough for a personal instance (reads each state file once).
   'GET /api/admin/users': async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    const users = db.users.map(u => {
-      const S = readState(u.id) || {};
+    // One read per user, in parallel: sequential awaits here would make the dashboard's
+    // latency the sum of every profile on the instance.
+    const users = await Promise.all(db.users.map(async u => {
+      const S = (await readState(u.id)) || {};
       const workouts = S.workouts || [];
       const last = workouts[workouts.length - 1];
       return {
@@ -492,7 +535,7 @@ const routes = {
         hasPush: db.subs.some(s => s.userId === u.id),
         live: livePresence(u.id)
       };
-    });
+    }));
     json(res, 200, { users, invite_only: INVITE_ONLY, now: Date.now() });
   },
 
@@ -502,7 +545,7 @@ const routes = {
     const id = new URL(req.url, 'http://x').searchParams.get('id');
     const u = db.users.find(x => x.id === id);
     if (!u) return json(res, 404, { error: 'no such user' });
-    const S = readState(u.id) || {};
+    const S = (await readState(u.id)) || {};
     json(res, 200, {
       user: { id: u.id, name: u.name, created: u.created || null, disabled: !!u.disabled, admin: isAdmin(u), invitedBy: u.invitedBy || null },
       unit: S.unit || 'kg',
@@ -573,23 +616,29 @@ const routes = {
 };
 
 /* ---------- Coach: boot recovery, notifications, scheduled reviews ---------- */
-// A job that was running when the process died is not coming back; say so rather than leaving
-// a spinner that never resolves.
-coachJobs.recoverOnBoot();
-// A ready proposal is the one Coach event worth a notification. Failures and "nothing to
-// change" stay silent on purpose (FR-38/E4).
-coachJobs.setProposalHook((uid, pending) => {
-  const n = (pending?.changes || []).length;
-  if (!n) return;
-  sendPush(uid, {
-    title: 'Your Coach has been reading',
-    body: n === 1 ? '1 suggestion after this week' : `${n} suggestions after this week`,
-    tag: 'coach-proposal', url: '#/coach'
+if (COACH) {
+  // A job that was running when the process died is not coming back; say so rather than leaving
+  // a spinner that never resolves.
+  coachJobs.recoverOnBoot();
+  // A ready proposal is the one Coach event worth a notification. Failures and "nothing to
+  // change" stay silent on purpose (FR-38/E4).
+  coachJobs.setProposalHook((uid, pending) => {
+    const n = (pending?.changes || []).length;
+    if (!n) return;
+    sendPush(uid, {
+      title: 'Your Coach has been reading',
+      body: n === 1 ? '1 suggestion after this week' : `${n} suggestions after this week`,
+      tag: 'coach-proposal', url: '#/coach'
+    });
   });
-});
-startCadence({ users: () => db.users, userNow });
+  startCadence({ users: () => db.users, userNow });
+}
 
-http.createServer(async (req, res) => {
+/* ---------- request dispatch ---------- */
+// Shared by both entry points so there is one definition of what a request means: the long-
+// lived server below, and the serverless handler in index.js, which wraps this with a reload
+// of the db before and a conflict-checked write after.
+export async function dispatch(req, res) {
   const url = new URL(req.url, 'http://x');
   const key = req.method + ' ' + url.pathname;
   const handler = routes[key];
@@ -599,4 +648,12 @@ http.createServer(async (req, res) => {
     console.error(key, e);
     if (!res.headersSent) json(res, 500, { error: 'server error' });
   }
-}).listen(PORT, () => console.log(`gym-api on :${PORT} (rpID=${RP_ID}, origin=${ORIGIN})`));
+}
+
+// Only the long-lived deployment listens on a port. Under a serverless host this module is
+// imported for its routes and nothing else, and binding a socket there would be an error.
+// Exported so a test can shut it down; undefined when something else owns the socket.
+export const server = SERVERLESS ? null
+  : http.createServer(dispatch).listen(PORT, () => console.log(`gym-api on :${PORT} (rpID=${RP_ID}, origin=${ORIGIN})`));
+
+export { reloadDb, flushDb, json };

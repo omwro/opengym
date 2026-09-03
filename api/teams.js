@@ -81,10 +81,13 @@ function weekKey(iso) {
 }
 
 /** The team feed: recent sessions from every member, newest first. */
-function feed(members, readState, limit) {
+async function feed(members, readState, limit) {
   const items = [];
-  for (const m of members) {
-    const st = readState(m.id);
+  // Read every member in parallel — one after another would make the feed as slow as the
+  // team is large on any backend where a read is a round trip.
+  const states = await Promise.all(members.map(m => readState(m.id)));
+  for (let i = 0; i < members.length; i++) {
+    const m = members[i], st = states[i];
     for (const w of (st?.workouts || [])) {
       items.push({
         uid: m.id, who: m.name,
@@ -132,18 +135,18 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
     return true;
   }
 
-  const publicTeam = (team, user) => ({
+  const publicTeam = async (team, user) => ({
     id: team.id, name: team.name, code: team.code,
     createdAt: team.createdAt,
-    members: memberUsers(team).map(u => {
+    members: await Promise.all(memberUsers(team).map(async u => {
       const live = livePresence(u.id);
       return {
         id: u.id, name: u.name, you: u.id === user.id,
         founder: u.id === team.createdBy,
         live: live ? { exIdx: live.exIdx, exTotal: live.exTotal, setsDone: live.setsDone, setsTotal: live.setsTotal, startedAt: live.startedAt } : null,
-        ...summarize(readState(u.id))
+        ...summarize(await readState(u.id))
       };
-    }),
+    })),
     plans: (team.plans || []).map(p => ({
       id: p.id, name: p.name, note: p.note || '', by: p.by, byName: p.byName, at: p.at,
       routines: (p.bundle?.routines || []).length,
@@ -158,7 +161,7 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       const user = readSession(req);
       if (!user) return json(res, 401, { error: 'not signed in' });
       const team = user.teamId ? teamById(user.teamId) : null;
-      json(res, 200, { team: team ? publicTeam(team, user) : null });
+      json(res, 200, { team: team ? await publicTeam(team, user) : null });
     },
 
     'POST /api/team/create': async (req, res) => {
@@ -177,7 +180,7 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       teams().push(team);
       user.teamId = team.id;
       saveDb();
-      json(res, 200, { team: publicTeam(team, user) });
+      json(res, 200, { team: await publicTeam(team, user) });
     },
 
     'POST /api/team/join': async (req, res) => {
@@ -188,13 +191,13 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       const code = String(body.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
       const team = teams().find(t => t.code === code);
       if (!team) return json(res, 404, { error: 'no team with that code' });
-      if (team.members.includes(user.id)) { user.teamId = team.id; saveDb(); return json(res, 200, { team: publicTeam(team, user) }); }
+      if (team.members.includes(user.id)) { user.teamId = team.id; saveDb(); return json(res, 200, { team: await publicTeam(team, user) }); }
       if (team.members.length >= MAX_MEMBERS) return json(res, 409, { error: 'that team is full' });
       leave(user);
       team.members.push(user.id);
       user.teamId = team.id;
       saveDb();
-      json(res, 200, { team: publicTeam(team, user) });
+      json(res, 200, { team: await publicTeam(team, user) });
     },
 
     'POST /api/team/leave': async (req, res) => {
@@ -212,7 +215,7 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       if (!name) return json(res, 400, { error: 'name required' });
       ctx.team.name = name;
       saveDb();
-      json(res, 200, { team: publicTeam(ctx.team, ctx.user) });
+      json(res, 200, { team: await publicTeam(ctx.team, ctx.user) });
     },
 
     // Recent sessions across the whole team, newest first.
@@ -220,7 +223,7 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       const ctx = requireTeam(req, res); if (!ctx) return;
       const url = new URL(req.url, 'http://x');
       const limit = Math.min(200, Math.max(1, +url.searchParams.get('limit') || 60));
-      json(res, 200, { feed: feed(memberUsers(ctx.team), readState, limit) });
+      json(res, 200, { feed: await feed(memberUsers(ctx.team), readState, limit) });
     },
 
     // Publish a scheme to the team. The body is the same bundle the existing plan-share
@@ -241,7 +244,7 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
         bundle
       });
       saveDb();
-      json(res, 200, { team: publicTeam(ctx.team, ctx.user) });
+      json(res, 200, { team: await publicTeam(ctx.team, ctx.user) });
     },
 
     // The full bundle for one plan — fetched only when someone opens or imports it, so the
@@ -271,7 +274,7 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       plan.byName = ctx.user.name;
       plan.by = ctx.user.id;
       saveDb();
-      json(res, 200, { team: publicTeam(ctx.team, ctx.user) });
+      json(res, 200, { team: await publicTeam(ctx.team, ctx.user) });
     },
 
     'POST /api/team/plans/remove': async (req, res) => {
@@ -279,7 +282,7 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       const body = await readBody(req);
       ctx.team.plans = (ctx.team.plans || []).filter(p => p.id !== body.id);
       saveDb();
-      json(res, 200, { team: publicTeam(ctx.team, ctx.user) });
+      json(res, 200, { team: await publicTeam(ctx.team, ctx.user) });
     },
 
     // One member's training in full, for the profile screen behind a name in the feed.
@@ -289,7 +292,7 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       if (!ctx.team.members.includes(id)) return json(res, 404, { error: 'not a member of your team' });
       const u = db.users.find(x => x.id === id);
       if (!u) return json(res, 404, { error: 'not a member of your team' });
-      const st = readState(id) || {};
+      const st = (await readState(id)) || {};
       json(res, 200, {
         member: {
           id: u.id, name: u.name, you: u.id === ctx.user.id,

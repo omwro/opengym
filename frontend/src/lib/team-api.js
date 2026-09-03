@@ -48,8 +48,11 @@ export function useTeam(enabled, everyMs = 20000) {
   useEffect(() => {
     if (!enabled) { setTeam(null); setLoading(false); return }
     let stopped = false
+    // Only the *polling* is gated on visibility. The first load is not: a page restored into a
+    // background tab would otherwise sit on its loading state until something brought the tab
+    // to the front, which on a phone can be a long time or never.
     const tick = () => { if (!stopped && document.visibilityState === 'visible') load.current() }
-    tick()
+    load.current()
     timer.current = setInterval(tick, everyMs)
     document.addEventListener('visibilitychange', tick)
     return () => {
