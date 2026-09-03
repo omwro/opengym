@@ -34,6 +34,28 @@ const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
 const RP_ID = process.env.RP_ID || 'localhost';
 const ORIGIN = process.env.ORIGIN || 'http://localhost:8080';
+// A passkey is bound to the exact hostname it was created on, and the browser refuses the
+// ceremony outright — "rp.id cannot be used with current origin" — if the id the server sends
+// is not the host in the address bar. On a fixed domain, configuration is the right answer and
+// RP_ID/ORIGIN below are used as given. On a platform that mints a new hostname per deployment
+// and per preview branch, no single configured value can be right for all of them, so when the
+// pair is NOT configured the identity is taken from the request instead.
+//
+// Deriving from the Host header is safe here in the way that matters: the browser will only
+// complete a ceremony whose rp.id matches the origin it is actually on, so a forged header
+// cannot mint a credential for someone else's domain — it can only fail. Setting RP_ID and
+// ORIGIN explicitly pins it and is still the right thing behind a domain you control.
+const RP_CONFIGURED = !!(process.env.RP_ID && process.env.ORIGIN);
+function rpFor(req) {
+  if (RP_CONFIGURED) return { rpID: RP_ID, origin: ORIGIN };
+  const raw = req.headers['x-forwarded-host'] || req.headers.host || '';
+  const host = String(raw).split(',')[0].trim();
+  if (!host) return { rpID: RP_ID, origin: ORIGIN };
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
+    || (/^(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(host) ? 'http' : 'https');
+  // rp.id is a domain: no scheme, no port. The origin keeps both.
+  return { rpID: host.replace(/:\d+$/, ''), origin: `${proto}://${host}` };
+}
 const RP_NAME = process.env.RP_NAME || 'openGym';
 // Admin dashboard (issue): admins are matched by uid; INVITE_ONLY gates new signups behind a
 // code the admin generates. Both default off so a fresh self-hosted instance stays open.
@@ -47,6 +69,9 @@ const SESSION_DAYS = Math.max(1, +(process.env.SESSION_DAYS || 90) || 90);
 const MAX_BODY = 5 * 1024 * 1024;
 // Secure cookies require HTTPS; over plain http://localhost the flag would drop the cookie
 const SECURE = /^https:/i.test(ORIGIN) ? ' Secure;' : '';
+// Secure cookies are dropped over plain http, so the flag has to track the origin actually in
+// use — which, unconfigured, is per-request like the rp id above.
+const secureFor = req => (/^https:/i.test(rpFor(req).origin) ? ' Secure;' : '');
 
 /* ---------- secret + db ---------- */
 // Where any of this actually lives is store.js's problem: a directory on disk when openGym
@@ -246,10 +271,10 @@ function requireAdmin(req, res) {
   if (!isAdmin(user)) { json(res, 403, { error: 'forbidden' }); return null; }
   return user;
 }
-function sessionCookie(user) {
-  return `gymsid=${makeSession(user)}; Path=/; Max-Age=${SESSION_DAYS * 86400}; HttpOnly;${SECURE} SameSite=Lax`;
+function sessionCookie(user, req) {
+  return `gymsid=${makeSession(user)}; Path=/; Max-Age=${SESSION_DAYS * 86400}; HttpOnly;${secureFor(req)} SameSite=Lax`;
 }
-const clearCookie = `gymsid=; Path=/; Max-Age=0; HttpOnly;${SECURE} SameSite=Lax`;
+const clearCookieFor = req => `gymsid=; Path=/; Max-Age=0; HttpOnly;${secureFor(req)} SameSite=Lax`;
 
 /* ---------- challenge store (in-memory, 5 min TTL) ---------- */
 const challenges = new Map(); // cid -> {challenge, name?, uid?, exp}
@@ -337,7 +362,7 @@ export const routes = {
       return json(res, 403, { error: 'a valid invite code is required' });
     const uid = crypto.randomBytes(12).toString('base64url');
     const options = await generateRegistrationOptions({
-      rpName: RP_NAME, rpID: RP_ID,
+      rpName: RP_NAME, rpID: rpFor(req).rpID,
       userID: Buffer.from(uid), userName: name, userDisplayName: name,
       attestationType: 'none',
       authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
@@ -356,8 +381,8 @@ export const routes = {
       verification = await verifyRegistrationResponse({
         response: body.credential,
         expectedChallenge: c.challenge,
-        expectedOrigin: ORIGIN,
-        expectedRPID: RP_ID,
+        expectedOrigin: rpFor(req).origin,
+        expectedRPID: rpFor(req).rpID,
         requireUserVerification: false
       });
     } catch (e) { return json(res, 400, { error: 'verification failed: ' + e.message }); }
@@ -380,12 +405,12 @@ export const routes = {
       transports: body.credential?.response?.transports || []
     });
     saveDb();
-    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user), teamId: user.teamId || null } }, { 'Set-Cookie': sessionCookie(user) });
+    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user), teamId: user.teamId || null } }, { 'Set-Cookie': sessionCookie(user, req) });
   },
 
   'POST /api/login/options': async (req, res) => {
     const options = await generateAuthenticationOptions({
-      rpID: RP_ID, userVerification: 'preferred', allowCredentials: []
+      rpID: rpFor(req).rpID, userVerification: 'preferred', allowCredentials: []
     });
     const cid = putChallenge({ challenge: options.challenge });
     json(res, 200, { cid, options });
@@ -402,8 +427,8 @@ export const routes = {
       verification = await verifyAuthenticationResponse({
         response: body.credential,
         expectedChallenge: c.challenge,
-        expectedOrigin: ORIGIN,
-        expectedRPID: RP_ID,
+        expectedOrigin: rpFor(req).origin,
+        expectedRPID: rpFor(req).rpID,
         requireUserVerification: false,
         credential: {
           id: cred.id,
@@ -419,10 +444,10 @@ export const routes = {
     const user = db.users.find(u => u.id === cred.userId);
     if (!user) return json(res, 500, { error: 'user missing' });
     if (user.disabled) return json(res, 403, { error: 'this account has been disabled' });
-    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user), teamId: user.teamId || null } }, { 'Set-Cookie': sessionCookie(user) });
+    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user), teamId: user.teamId || null } }, { 'Set-Cookie': sessionCookie(user, req) });
   },
 
-  'POST /api/logout': async (req, res) => json(res, 200, { ok: true }, { 'Set-Cookie': clearCookie }),
+  'POST /api/logout': async (req, res) => json(res, 200, { ok: true }, { 'Set-Cookie': clearCookieFor(req) }),
 
   // "Sign out everywhere" — bumps this user's session version, which invalidates every cookie
   // ever issued for the account, on every device, including a copy someone else walked off with.
@@ -433,7 +458,7 @@ export const routes = {
     if (!user) return json(res, 401, { error: 'not signed in' });
     user.sv = sessionVersion(user) + 1;
     saveDb();
-    json(res, 200, { ok: true }, { 'Set-Cookie': clearCookie });
+    json(res, 200, { ok: true }, { 'Set-Cookie': clearCookieFor(req) });
   },
 
   'GET /api/data': async (req, res) => {
