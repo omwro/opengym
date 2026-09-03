@@ -10,6 +10,7 @@ import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 import { glyphOf } from '../lib/glyphs.js'
 import { coachAvailable, hasConsent } from '../lib/coach.js'
+import { teamsAvailable, useTeam } from '../lib/team-api.js'
 import { useCoachStatus } from '../lib/coach-api.js'
 import { DEMO } from '../lib/demo.js'
 import { MOBILE } from '../lib/mobile.js'
@@ -39,6 +40,33 @@ function CoachCard({ nav }) {
   </div>
 }
 
+// Who else is training, at a glance. Silent when there is no server or no team — the app
+// looks exactly as it did before teams existed until you are actually in one.
+function TeamCard({ nav }) {
+  const user = useStore(s => s.user)
+  const { team } = useTeam(teamsAvailable(user))
+  if (!team) return null
+  const live = team.members.filter(m => m.live && !m.you)
+  const thisWeek = team.members.reduce((n, m) => n + m.week, 0)
+  return <div className="card" style={live.length ? { borderColor: 'var(--orange)' } : null}>
+    <div className="today-row" onClick={() => nav('/team')}>
+      <div className="row" style={{ gap: 9, minWidth: 0 }}>
+        <span className="lrow-i" style={{ background: live.length ? 'var(--orange)' : 'var(--surface-3)' }}>
+          <Icon name={live.length ? 'timer' : 'personCircle'} />
+        </span>
+        <div style={{ minWidth: 0 }}>
+          <div className="lbl2">{team.name}</div>
+          {/* no `capitalize` here: the line is a sentence, and the class title-cases it */}
+          <div className="ttl">{live.length
+            ? t(live.length === 1 ? '{0} is training now' : '{0} are training now', live.map(m => m.name).join(', '))
+            : t(thisWeek === 1 ? '{0} session from the team this week' : '{0} sessions from the team this week', thisWeek)}</div>
+        </div>
+      </div>
+      <Icon name="chevronRight" className="chev" />
+    </div>
+  </div>
+}
+
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
 export default function Home() {
   const nav = useNavigate()
@@ -47,6 +75,7 @@ export default function Home() {
   const config = useStore(s => s.config)
   const [weekOffset, setWeekOffset] = useState(0)
   const coachOn = coachAvailable(config, user, { demo: DEMO, mobile: MOBILE })
+  const teamOn = teamsAvailable(user)
 
   const today = new Date()
   const routine = effectiveRoutine(S, todayISO())
@@ -79,7 +108,10 @@ export default function Home() {
   return <div className="narrow">
     <div className="hdr">
       <div><h1>{user ? t('Hi {0}', user.name) : 'openGym'}</h1><div className="sub">{today.toLocaleDateString(dateLocale(), { weekday: 'long', day: 'numeric', month: 'long' })}</div></div>
-      <button className="iconbtn" onClick={() => nav('/settings')} aria-label={t('Settings')}><Icon name="gear" /></button>
+      <div className="row" style={{ gap: 8 }}>
+        {teamOn && <button className="iconbtn" onClick={() => nav('/team')} aria-label={t('Team')}><Icon name="personCircle" /></button>}
+        <button className="iconbtn" onClick={() => nav('/settings')} aria-label={t('Settings')}><Icon name="gear" /></button>
+      </div>
     </div>
 
     <div className="card">
@@ -106,6 +138,7 @@ export default function Home() {
     </div>
 
     {coachOn && <CoachCard nav={nav} />}
+    {teamOn && <TeamCard nav={nav} />}
 
     {!S.routines.length && !S.active && (
       <div className="card">
