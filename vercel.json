@@ -19,7 +19,13 @@
       "src": "/api/(.*)",
       "dest": "/api/index.js?__p=$1"
     },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+    {
+      "src": "/",
+      "dest": "/frontend/index.html"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/$1"
+    }
   ]
 }

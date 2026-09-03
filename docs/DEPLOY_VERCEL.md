@@ -107,3 +107,16 @@ Nothing forces Supabase and serverless to go together. `npm start` in `api/` wit
 Supabase variables set runs the ordinary server against the hosted database — useful for
 trying the backend locally, and a legitimate way to self-host. The AI Coach stays unavailable
 either way; it needs a filesystem it owns.
+
+## Why the routes point at `/frontend`
+
+`@vercel/static-build` publishes a build's output under the directory its `src` lives in. The
+frontend's `package.json` is in `frontend/`, so `frontend/dist/index.html` is deployed as
+`/frontend/index.html` — not `/index.html`. Routes that assume the root produce a `NOT_FOUND`
+for every page while the build log reports complete success, which is a confusing pair of
+symptoms to be handed.
+
+Hence the two rewrites: `/` serves `frontend/index.html`, and everything else is looked up
+under `frontend/`. There is no SPA fallback and none is needed — the app uses a hash router, so
+`/#/team` is the single path `/` as far as the server is concerned, and a request for a file
+that genuinely is not there should still 404.
