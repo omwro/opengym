@@ -14,6 +14,10 @@ export const DEF = {
   // not among them — it has its own log above. `height` sits alongside because the body-fat
   // estimate needs it and it is a property of the person, not of a single measurement.
   measures: [], height: null,
+  // A goal per measurement, and which one Home shows a chart for. `measureFocus` is a
+  // preference rather than data: it follows you across devices so Home opens on the thing
+  // you are actually chasing.
+  measureGoals: {}, measureFocus: 'weight',
   exWeights: {}, workouts: [], active: null, customEx: [], gifSize: 'full',
   // effort: which per-set effort scale is logged — 'none' | 'rir' | 'rpe'. null, not 'none', so
   // that a profile which never chose (loaded state is overlaid on DEF, on every path: local,

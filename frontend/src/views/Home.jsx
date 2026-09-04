@@ -1,16 +1,18 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
-import { effectiveRoutine, effectiveRoutineId, streakWeeks, lastBW, setsDoneActive } from '../lib/history.js'
+import { effectiveRoutine, effectiveRoutineId, streakWeeks, setsDoneActive } from '../lib/history.js'
 import { fmtNum, fmtDate, todayISO, isoOf, weekKey, DAYS } from '../lib/format.js'
 import { t, dateLocale } from '../lib/i18n.js'
-import { bwSheet, goalSheet, dayOverrideSheet, calendarSheet, startFlow, loadStarterPlan, bwDeltaColor } from '../sheets.jsx'
+import { bwSheet, goalSheet, dayOverrideSheet, calendarSheet, startFlow, loadStarterPlan } from '../sheets.jsx'
 import LineChart from '../components/LineChart.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 import { glyphOf } from '../lib/glyphs.js'
 import { coachAvailable, hasConsent } from '../lib/coach.js'
 import { teamsAvailable, useTeam } from '../lib/team-api.js'
+import { WEIGHT, metric, metricIds, changeColor } from '../lib/measures.js'
+import { measureSheet, measureGoalSheet } from './Measures.jsx'
 import { useCoachStatus } from '../lib/coach-api.js'
 import { DEMO } from '../lib/demo.js'
 import { MOBILE } from '../lib/mobile.js'
@@ -67,6 +69,78 @@ function TeamCard({ nav }) {
   </div>
 }
 
+// One card for the whole body, not two nearly identical ones stacked. Weight and a tape
+// measurement answer the same question — how is this body changing — and only differ in where
+// they are stored, which lib/measures.js already flattens away. So: one chart, one Goal
+// button, one Log button, and a row of chips to choose what you are looking at.
+//
+// Weight leads because it is the one thing every profile has: it is asked for before every
+// workout, so the card is never empty for someone who only trains.
+function BodyCard({ nav }) {
+  const S = useStore(s => s.S)
+  const update = useStore(s => s.update)
+  const ids = metricIds(S)
+  // Fall back rather than blank out: the remembered metric may be one this profile does not
+  // log (or stopped logging), and an empty card would look broken.
+  const id = ids.includes(S.measureFocus) ? S.measureFocus : ids[0]
+  const m = id ? metric(S, id) : null
+
+  // The two actions dispatch on the metric — the only place the difference still shows.
+  const log = () => (id === WEIGHT ? bwSheet() : measureSheet())
+  const setGoal = () => (id === WEIGHT ? goalSheet() : measureGoalSheet(id))
+
+  if (!m || m.current == null) return <div className="card">
+    <div className="row between" style={{ marginBottom: 6 }}>
+      <h2 style={{ margin: 0 }}>{t('Body')}</h2>
+      <Button size="sm" icon="plus" onClick={() => bwSheet()}>{t('Log')}</Button>
+    </div>
+    <div className="muted small">
+      {t('Weight, chest, arms, waist — logged here, and the weigh-in is asked before every workout.')}
+    </div>
+  </div>
+
+  return <div className="card">
+    <div className="row between" style={{ marginBottom: 6 }}>
+      <h2 style={{ margin: 0 }}>{m.label}</h2>
+      <div className="row" style={{ gap: 8 }}>
+        <Button size="sm" icon="target" style={m.goal ? { color: 'var(--yellow)' } : undefined}
+          onClick={setGoal}>{m.goal ? fmtNum(m.goal.goal) : t('Goal')}</Button>
+        <Button size="sm" icon="plus" onClick={log}>{t('Log')}</Button>
+      </div>
+    </div>
+
+    <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
+      <div className="big">{fmtNum(m.current)} <span className="muted" style={{ fontSize: '1rem' }}>{m.unit}</span></div>
+      {/* only when it actually moved — an unchanged value used to read as "- 0" */}
+      {!!m.change && <span className="small row" style={{ gap: 2, fontWeight: 500, color: changeColor(m) }}>
+        <Icon name={m.change > 0 ? 'arrowUp' : 'arrowDown'} style={{ fontSize: 12 }} />
+        {fmtNum(Math.abs(m.change))}
+      </span>}
+      <span className="dim small" style={{ marginLeft: 'auto' }}>{fmtDate(m.date, true)}</span>
+    </div>
+
+    {m.goal && <div className="small row" style={{ color: 'var(--yellow)', marginTop: 4, gap: 5 }}>
+      <Icon name="target" style={{ fontSize: 13 }} />
+      <span>{t('Goal')} {fmtNum(m.goal.goal)} {m.unit} · {m.goal.reached
+        ? t('reached!')
+        : t(m.goal.up ? '{0} to gain' : '{0} to lose', fmtNum(m.goal.remaining) + ' ' + m.unit)}</span>
+    </div>}
+
+    {m.points.length > 1 && <div className="chart" style={{ marginTop: 8 }}>
+      <LineChart points={m.points} h={130} unit={m.unit} goal={m.goal?.goal ?? null} />
+    </div>}
+
+    {ids.length > 1 && <div className="chips" style={{ marginTop: 10 }}>
+      {ids.map(x => <button key={x} className={'chip' + (x === id ? ' on' : '')}
+        onClick={() => update(s => { s.measureFocus = x })}>{metric(S, x).label}</button>)}
+    </div>}
+
+    <div className="dim small tappable" style={{ marginTop: 10, cursor: 'pointer' }} onClick={() => nav('/measures')}>
+      {t('All measurements')} →
+    </div>
+  </div>
+}
+
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
 export default function Home() {
   const nav = useNavigate()
@@ -80,9 +154,6 @@ export default function Home() {
   const today = new Date()
   const routine = effectiveRoutine(S, todayISO())
   const todayOvr = S.dayPlan[todayISO()] !== undefined
-  const bw = lastBW(S)
-  const prevBW = S.bodyweight.length > 1 ? S.bodyweight[S.bodyweight.length - 2] : null
-  const delta = bw && prevBW ? bw.w - prevBW.w : null
 
   const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + weekOffset * 7)
   const doneDays = new Set(S.workouts.map(w => w.d))
@@ -100,7 +171,6 @@ export default function Home() {
 
   const wThisWeek = S.workouts.filter(w => weekKey(w.d) === weekKey(todayISO())).length
   const plannedPerWeek = Object.keys(S.week).filter(k => S.week[k]).length
-  const bwPoints = S.bodyweight.slice(-30).map(b => ({ t: b.t || new Date(b.d).getTime(), y: b.w, d: b.d }))
 
   // today's session shown right under the week strip
   const onToday = () => { if (S.active) nav('/workout'); else if (routine) startFlow(routine.id); else dayOverrideSheet(todayISO()) }
@@ -156,35 +226,7 @@ export default function Home() {
       </div>
     )}
 
-    <div className="card">
-      <div className="row between" style={{ marginBottom: 6 }}>
-        <h2 style={{ margin: 0 }}>{t('Body weight')}</h2>
-        <div className="row" style={{ gap: 8 }}>
-          <Button size="sm" icon="target" style={S.targetW ? { color: 'var(--yellow)' } : undefined} onClick={goalSheet}>{S.targetW ? fmtNum(S.targetW) : t('Goal')}</Button>
-          <Button size="sm" icon="plus" onClick={() => bwSheet()}>{t('Log')}</Button>
-        </div>
-      </div>
-      {bw ? <>
-        <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
-          <div className="big">{fmtNum(bw.w)} <span className="muted" style={{ fontSize: '1rem' }}>{S.unit}</span></div>
-          {/* only when it actually moved — an unchanged weight used to read as "− 0" */}
-          {!!delta && (
-            <span className="small row" style={{ gap: 2, fontWeight: 500, color: bwDeltaColor(delta, bw.w) }}>
-              <Icon name={delta > 0 ? 'arrowUp' : 'arrowDown'} style={{ fontSize: 12 }} />
-              {fmtNum(Math.abs(delta))}
-            </span>
-          )}
-          <span className="dim small" style={{ marginLeft: 'auto' }}>{fmtDate(bw.d, true)}</span>
-        </div>
-        {S.targetW && (
-          <div className="small row" style={{ color: 'var(--yellow)', marginTop: 4, gap: 5 }}>
-            <Icon name="target" style={{ fontSize: 13 }} />
-            <span>{t('Goal')} {fmtNum(S.targetW)} {S.unit} · {Math.abs(S.targetW - bw.w) < 0.05 ? t('reached!') : t(S.targetW > bw.w ? '{0} to gain' : '{0} to lose', fmtNum(Math.abs(S.targetW - bw.w)) + ' ' + S.unit)}</span>
-          </div>
-        )}
-        <div className="chart" style={{ marginTop: 8 }}><LineChart points={bwPoints} h={130} unit={S.unit} goal={S.targetW} /></div>
-      </> : <div className="muted small">{t("No entries yet — log your weight to start the curve. It's also asked before every workout.")}</div>}
-    </div>
+    <BodyCard nav={nav} />
 
     <div className="card tappable" style={{ cursor: 'pointer' }} onClick={() => calendarSheet()}>
       <div className="row between">

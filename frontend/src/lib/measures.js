@@ -119,6 +119,43 @@ export function missingForBodyFat(S, m) {
   return need;
 }
 
+/* ---------- goals ---------- */
+// Which direction counts as progress is never assumed. A waist is not always meant to shrink
+// and a thigh is not always meant to grow — it depends on whether someone is cutting, bulking
+// or rehabbing an imbalance. The goal itself settles it: it sits above or below where you are
+// now, and that is the direction. Same rule body weight already uses.
+
+export const goalOf = (S, id) => {
+  const g = S?.measureGoals?.[id];
+  return Number.isFinite(g) && g > 0 ? g : null;
+};
+
+/** The latest value recorded for a field, or null. */
+export function currentOf(S, id) {
+  const hit = sorted(S).find(m => Number.isFinite(m[id]));
+  return hit ? hit[id] : null;
+}
+
+/**
+ * How a field stands against its goal. `up` is whether the goal is above today's value, so a
+ * gain counts as progress; `remaining` is what is left either way.
+ */
+export function goalProgress(S, id) {
+  const goal = goalOf(S, id);
+  const current = currentOf(S, id);
+  if (goal == null || current == null) return null;
+  const diff = Math.round((goal - current) * 10) / 10;
+  return { goal, current, remaining: Math.abs(diff), up: diff > 0, reached: Math.abs(diff) < 0.05 };
+}
+
+/** Colour for a change: toward the goal or away from it. Neutral when there is no goal. */
+export function deltaColor(S, id, change) {
+  if (!change) return 'var(--label-2)';
+  const p = goalProgress(S, id);
+  if (!p) return 'var(--label)';
+  return (change > 0) === p.up ? 'var(--acc)' : 'var(--red)';
+}
+
 /** Points for one field's chart, oldest-first. */
 export const series = (S, id) => sorted(S).slice().reverse()
   .filter(m => Number.isFinite(m[id]))
@@ -138,6 +175,59 @@ export function sideGap(m, group) {
   const l = m?.[pair.left.id], r = m?.[pair.right.id];
   if (!Number.isFinite(l) || !Number.isFinite(r)) return null;
   return round1(r - l);
+}
+
+/* ---------- one shape for every body metric ---------- */
+// Body weight and a tape measurement answer the same question and deserve one card, not two
+// near-identical ones stacked. They are stored differently though — weight has its own log,
+// its own goal field and is asked for before every workout — so this is where the difference
+// is absorbed: everything below returns the same descriptor, and the UI has a single path.
+
+export const WEIGHT = 'weight';
+
+/** Every metric this profile has data for, weight first. */
+export function metricIds(S) {
+  const ids = [];
+  if ((S?.bodyweight || []).length) ids.push(WEIGHT);
+  for (const f of FIELDS) if (series(S, f.id).length) ids.push(f.id);
+  return ids;
+}
+
+/**
+ * One metric, uniform: label, unit, chart points, latest value, change since the previous
+ * entry, and the goal expressed the same way for both kinds.
+ */
+export function metric(S, id) {
+  if (id === WEIGHT) {
+    const log = S?.bodyweight || [];
+    const last = log.length ? log[log.length - 1] : null;
+    const prev = log.length > 1 ? log[log.length - 2] : null;
+    const goal = Number.isFinite(S?.targetW) && S.targetW > 0 ? S.targetW : null;
+    const current = last ? last.w : null;
+    return {
+      id: WEIGHT, label: t('Body weight'), unit: S?.unit || 'kg',
+      current, date: last ? last.d : null,
+      change: last && prev ? Math.round((last.w - prev.w) * 10) / 10 : null,
+      points: log.map(b => ({ t: b.t || new Date(b.d).getTime(), y: b.w, d: b.d })),
+      goal: goal == null || current == null ? null : {
+        goal, current, remaining: Math.abs(Math.round((goal - current) * 10) / 10),
+        up: goal > current, reached: Math.abs(goal - current) < 0.05
+      }
+    };
+  }
+  const entry = sorted(S).find(m => Number.isFinite(m[id]));
+  return {
+    id, label: labelOf(id), unit: lengthUnit(S),
+    current: currentOf(S, id), date: entry ? entry.d : null,
+    change: delta(S, id), points: series(S, id), goal: goalProgress(S, id)
+  };
+}
+
+/** Colour for a metric's change: toward its goal, away from it, or neutral without one. */
+export function changeColor(m) {
+  if (!m?.change) return 'var(--label-2)';
+  if (!m.goal) return 'var(--label)';
+  return (m.change > 0) === m.goal.up ? 'var(--acc)' : 'var(--red)';
 }
 
 /** Keep only real numbers, so a half-filled form never stores empty strings or NaN. */

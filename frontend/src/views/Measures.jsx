@@ -16,7 +16,7 @@ import { t } from '../lib/i18n.js'
 import { confirmSheet } from '../sheets.jsx'
 import {
   FIELDS, SINGLES, PAIRS, sorted, filled, stats, delta, sideGap, clean, isEmpty,
-  labelOf, lengthUnit, series, missingForBodyFat
+  labelOf, lengthUnit, series, missingForBodyFat, goalOf, goalProgress, deltaColor, currentOf
 } from '../lib/measures.js'
 import LineChart from '../components/LineChart.jsx'
 import Icon from '../components/Icon.jsx'
@@ -110,6 +110,58 @@ function MeasureForm({ existing, close }) {
 
 export const measureSheet = existing => ui().openSheet(close => <MeasureForm existing={existing} close={close} />)
 
+/* ============================ goals ============================ */
+
+function GoalForm({ id, close }) {
+  const S = useStore(s => s.S)
+  const update = useStore(s => s.update)
+  const toast = useUI(s => s.toast)
+  const unit = lengthUnit(S)
+  const current = currentOf(S, id)
+  const [v, setV] = useState(() => {
+    const g = goalOf(S, id)
+    return g != null ? String(g) : current != null ? String(current) : ''
+  })
+
+  const save = () => {
+    const n = Math.round(Number(String(v).replace(',', '.')) * 10) / 10
+    if (!Number.isFinite(n) || n <= 0) { toast(t('Enter a valid number')); return }
+    update(s => { s.measureGoals = { ...(s.measureGoals || {}), [id]: n } })
+    close()
+    toast(t('Goal set: {0}', fmtNum(n) + ' ' + unit))
+  }
+  const clear = () => {
+    update(s => { const g = { ...(s.measureGoals || {}) }; delete g[id]; s.measureGoals = g })
+    close(); toast(t('Goal removed'))
+  }
+
+  return <>
+    <h3>{t('{0} goal', labelOf(id))}</h3>
+    <div className="muted small" style={{ margin: '4px 0 14px', lineHeight: 1.45 }}>
+      {t('Drawn as a line through the chart. Whether the goal sits above or below where you are now is what decides which direction counts as progress — so a waist you want bigger works the same as one you want smaller.')}
+    </div>
+    <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+      <TextField inputMode="decimal" style={{ textAlign: 'center', fontSize: 22, fontWeight: 700 }}
+        value={v} onChange={e => setV(e.target.value)} placeholder={current != null ? String(current) : '–'} />
+      <span className="muted">{unit}</span>
+    </div>
+    {current != null && Number.isFinite(Number(v)) && Number(v) > 0 && (
+      <div className="dim small" style={{ margin: '8px 2px 0' }}>
+        {t('Now {0} {1}', fmtNum(current), unit)} · {Math.abs(Number(v) - current) < 0.05
+          ? t('reached!')
+          : t(Number(v) > current ? '{0} to gain' : '{0} to lose', fmtNum(Math.abs(Number(v) - current)) + ' ' + unit)}
+      </div>
+    )}
+    <div style={{ height: 14 }} />
+    <Button variant="primary" icon="target" onClick={save}>{t('Save goal')}</Button>
+    {goalOf(S, id) != null && <>
+      <div style={{ height: 8 }} />
+      <Button variant="danger" icon="trash" onClick={clear}>{t('Remove goal')}</Button>
+    </>}
+  </>
+}
+export const measureGoalSheet = id => ui().openSheet(close => <GoalForm id={id} close={close} />)
+
 /* ============================ one entry ============================ */
 
 function EntrySheet({ entry, close }) {
@@ -166,7 +218,7 @@ function tilesFor(S, m) {
     if (!Number.isFinite(m[f.id])) continue;
     tiles.push({
       key: f.id, label: labelOf(f.id), value: fmtNum(m[f.id]),
-      trend: delta(S, f.id), lowerIsBetter: f.id === 'waist'
+      trend: delta(S, f.id)
     });
   }
   for (const p of PAIRS) {
@@ -184,10 +236,11 @@ function tilesFor(S, m) {
   return tiles;
 }
 
-const Trend = ({ value, unit, lowerIsBetter }) => {
+// Colour comes from the goal, not from the body part: without one this stays neutral rather
+// than implying a waist ought to shrink or a chest ought to grow.
+const Trend = ({ value, unit, color }) => {
   if (!value) return null
-  const good = lowerIsBetter ? value < 0 : value > 0
-  return <span className="row" style={{ gap: 3, color: good ? 'var(--acc)' : 'var(--label-2)', fontSize: '.72rem', fontWeight: 600 }}>
+  return <span className="row" style={{ gap: 3, color: color || 'var(--label)', fontSize: '.72rem', fontWeight: 600 }}>
     <Icon name={value > 0 ? 'arrowUp' : 'arrowDown'} style={{ fontSize: 11 }} />
     {fmtNum(Math.abs(value))} {unit}
   </span>
@@ -199,8 +252,14 @@ export default function Measures() {
   const all = sorted(S)
   const unit = lengthUnit(S)
   const latest = all[0]
-  const [field, setField] = useState('chest')
-  const pts = series(S, field)
+  const update = useStore(s => s.update)
+  // Shares Home's remembered field rather than keeping a second, separate one: picking a
+  // measurement here and finding Home still on the old one would be its own small annoyance.
+  const tracked = FIELDS.filter(f => series(S, f.id).length)
+  const field = tracked.some(f => f.id === S.measureFocus) ? S.measureFocus : tracked[0]?.id
+  const setField = v => update(s => { s.measureFocus = v })
+  const pts = field ? series(S, field) : []
+  const fieldGoal = field ? goalProgress(S, field) : null
   const st = latest ? stats(S, latest) : null
 
   return <div className="narrow">
@@ -236,7 +295,7 @@ export default function Measures() {
               ? <span className="dim" style={{ fontSize: '.7rem' }}>
                   {tile.gap === 0 ? t('even') : t('{0} {1} apart', fmtNum(Math.abs(tile.gap)), unit)}
                 </span>
-              : <Trend value={tile.trend} unit={unit} lowerIsBetter={tile.lowerIsBetter} />}
+              : <Trend value={tile.trend} unit={unit} color={deltaColor(S, tile.key, tile.trend)} />}
           </div>)}
         </div>
         {st?.bodyFat != null && <div className="row between" style={{ marginTop: 12, paddingTop: 10, borderTop: 'var(--hair) solid var(--sep)' }}>
@@ -248,11 +307,19 @@ export default function Measures() {
       {pts.length > 1 && <div className="card">
         <div className="row between" style={{ marginBottom: 8 }}>
           <h2 style={{ margin: 0 }}>{t('Trend')}</h2>
+          <Button size="sm" icon="target" style={goalOf(S, field) ? { color: 'var(--yellow)' } : undefined}
+            onClick={() => measureGoalSheet(field)}>{goalOf(S, field) ? fmtNum(goalOf(S, field)) : t('Goal')}</Button>
         </div>
         <SelectRow icon="chartLine" title={t('Measurement')} value={field} onChange={setField}
           sheetTitle={t('Measurement')}
           options={FIELDS.filter(f => series(S, f.id).length).map(f => ({ value: f.id, label: labelOf(f.id) }))} />
-        <div className="chart" style={{ marginTop: 8 }}><LineChart points={pts} h={140} unit={unit} /></div>
+        {fieldGoal && <div className="small row" style={{ color: 'var(--yellow)', marginTop: 8, gap: 5 }}>
+          <Icon name="target" style={{ fontSize: 13 }} />
+          <span>{t('Goal')} {fmtNum(fieldGoal.goal)} {unit} · {fieldGoal.reached
+            ? t('reached!')
+            : t(fieldGoal.up ? '{0} to gain' : '{0} to lose', fmtNum(fieldGoal.remaining) + ' ' + unit)}</span>
+        </div>}
+        <div className="chart" style={{ marginTop: 8 }}><LineChart points={pts} h={140} unit={unit} goal={fieldGoal?.goal ?? null} /></div>
       </div>}
 
       <h4 className="sec">{t('All measurements')}</h4>
