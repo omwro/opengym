@@ -17,6 +17,7 @@ import {
   effortHistogram, isHardSet, HARD_RIR
 } from '../lib/effort.js'
 import { Button, Segmented, SelectRow } from '../components/ui.jsx'
+import { sorted as measuresSorted, filled as measureFilled, labelOf as measureLabel } from '../lib/measures.js'
 
 // Which muscles the training in a window actually hit — and, the point of the card,
 // which ones it keeps missing. Shading is relative within the window (lib/muscles.js).
@@ -141,6 +142,8 @@ export default function Stats() {
   const kind = displayScale(S)
   const hd = scaleName(kind)
 
+  const lastMeasure = measuresSorted(S)[0]
+
   const bwPts = S.bodyweight.filter(b => range === 0 || (b.t || new Date(b.d).getTime()) > now - range * 86400000)
     .map(b => ({ t: b.t || new Date(b.d).getTime(), y: b.w, d: b.d }))
   const bw30 = S.bodyweight.filter(b => (b.t || new Date(b.d).getTime()) > now - 30 * 86400000)
@@ -225,6 +228,20 @@ export default function Stats() {
         <Segmented className="seg-range" value={range} onChange={setRange}
           options={[{ value: 30, label: '1M' }, { value: 90, label: '3M' }, { value: 365, label: '1Y' }, { value: 0, label: t('All') }]} />
         <div className="chart"><LineChart points={bwPts} h={160} unit={S.unit} goal={S.targetW} /></div>
+        {/* The scale is one number about a whole body. Measurements sit next to it because they
+            are the other half of the same question, and because training shows up there first. */}
+        <div className="today-row" style={{ marginTop: 8 }} onClick={() => nav('/measures')}>
+          <div className="row" style={{ gap: 9, minWidth: 0 }}>
+            <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="target" /></span>
+            <div style={{ minWidth: 0 }}>
+              <div className="lbl2">{t('Measurements')}</div>
+              <div className="ttl">{lastMeasure
+                ? measureFilled(lastMeasure).slice(0, 3).map(f => `${measureLabel(f.id)} ${fmtNum(lastMeasure[f.id])}`).join(' · ')
+                : t('Chest, arms, waist — log them')}</div>
+            </div>
+          </div>
+          <Icon name="chevronRight" className="chev" />
+        </div>
       </div>
 
       <div className="card">

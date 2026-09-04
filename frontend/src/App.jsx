@@ -25,6 +25,7 @@ import Library from './views/Library.jsx'
 import Settings from './views/Settings.jsx'
 import Admin from './views/Admin.jsx'
 import Team from './views/Team.jsx'
+import Measures from './views/Measures.jsx'
 import Coach from './views/Coach.jsx'
 import CoachIntake from './views/CoachIntake.jsx'
 import CoachProposal from './views/CoachProposal.jsx'
@@ -77,6 +78,7 @@ function Shell() {
               <Route path="/workout" element={<Workout />} />
               <Route path="/stats" element={<Stats />} />
               <Route path="/history" element={<History />} />
+              <Route path="/measures" element={<Measures />} />
               <Route path="/library" element={<Library />} />
               <Route path="/settings" element={<Settings />} />
               {/* Teams gate themselves on there being a server (no demo, no standalone

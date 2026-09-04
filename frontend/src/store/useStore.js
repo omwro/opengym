@@ -10,6 +10,10 @@ export const DEF = {
   unit: 'kg', restSec: 90, sound: true, keepAwake: true, lang: 'en',
   theme: 'dark', accent: 'lime', body: 'male', targetW: null,
   bodyweight: [], routines: [], week: {}, dayPlan: {},
+  // Body measurements: circumferences over time, one entry per date. Weight is deliberately
+  // not among them — it has its own log above. `height` sits alongside because the body-fat
+  // estimate needs it and it is a property of the person, not of a single measurement.
+  measures: [], height: null,
   exWeights: {}, workouts: [], active: null, customEx: [], gifSize: 'full',
   // effort: which per-set effort scale is logged — 'none' | 'rir' | 'rpe'. null, not 'none', so
   // that a profile which never chose (loaded state is overlaid on DEF, on every path: local,

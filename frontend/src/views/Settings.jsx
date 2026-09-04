@@ -14,7 +14,7 @@ import { loadStarterPlan, confirmSheet, importFromApp } from '../sheets.jsx'
 import { coachAvailable, hasConsent } from '../lib/coach.js'
 import { forgetCoach } from '../lib/coach-api.js'
 import Icon from '../components/Icon.jsx'
-import { Section, Row, SelectRow, Switch, Segmented, Button, TextField } from '../components/ui.jsx'
+import { Section, Row, SelectRow, Switch, Segmented, Button, TextField, NumberField } from '../components/ui.jsx'
 
 export default function Settings() {
   const nav = useNavigate()
@@ -116,6 +116,17 @@ export default function Settings() {
           options={[{ value: 'kg', label: 'kg' }, { value: 'lb', label: 'lb' }]}
           value={S.unit} onChange={v => update(s => { s.unit = v })} />
       </Row>
+      {/* Only the body-fat estimate on the measurements screen uses this, which is why it is
+          optional and says so — everything else works without it. Lengths follow the weight
+          unit, so a profile in lb enters inches here. */}
+      <Row icon="figureStrength" iconTint="var(--indigo)" title={t('Height')}
+        subtitle={t('Optional — needed for the body-fat estimate')}>
+        <div className="row" style={{ gap: 6 }}>
+          <NumberField nullable decimal value={S.height} style={{ width: 74, textAlign: 'center' }}
+            onChange={v => update(s => { s.height = v })} />
+          <span className="dim small">{S.unit === 'lb' ? 'in' : 'cm'}</span>
+        </div>
+      </Row>
     </Section>
 
     {/* ---------- during a workout ---------- */}
@@ -165,7 +176,8 @@ export default function Settings() {
           onChange={v => update(s => { s.theme = v })}
         />
       </Row>
-      {/* Purely how the muscle map is drawn — nothing else in the app reads this. */}
+      {/* Draws the muscle map, and selects which body-fat formula the measurements screen
+          uses — the US Navy method is fitted separately for each. */}
       <Row icon="figureStrength" iconTint="var(--teal)" title={t('Body diagram')}>
         <Segmented
           className="seg-inline"
