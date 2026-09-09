@@ -56,7 +56,7 @@ const SECRET = 'c'.repeat(64);
 table.set('secret', { value: { v: SECRET }, version: 1 });
 table.set('db', {
   value: { users: [{ id: 'ann', name: 'Ann' }, { id: 'ben', name: 'Ben' }, { id: 'cat', name: 'Cat' }],
-           creds: [], subs: [], invites: [], teams: [] },
+           subs: [], team: null },
   version: 1
 });
 
@@ -92,22 +92,21 @@ test('the backend really is the async one', async () => {
   assert.ok(reads > 0, 'and the store is being read over the wire');
 });
 
-test('a team can be created and read back', async () => {
-  const r = await call('POST', '/api/team/create', { cookie: cookieFor('ann'), body: { name: 'Iron' } });
+test('the team can be renamed and read back', async () => {
+  const r = await call('POST', '/api/team/rename', { cookie: cookieFor('ann'), body: { name: 'Iron' } });
   assert.equal(r.status, 200);
   assert.equal((await call('GET', '/api/team', { cookie: cookieFor('ann') })).json.team.name, 'Iron');
 });
 
-test('three profiles joining at the same instant all end up in the team', async () => {
-  const code = (await call('GET', '/api/team', { cookie: cookieFor('ann') })).json.team.code;
-  const joins = await Promise.all([
-    call('POST', '/api/team/join', { cookie: cookieFor('ben'), body: { code } }),
-    call('POST', '/api/team/join', { cookie: cookieFor('cat'), body: { code } })
-  ]);
-  assert.ok(joins.every(j => j.status === 200), 'both joins are accepted');
+test('profiles created at the same instant all survive', async () => {
+  // The join race is gone with join codes, but creating profiles is the same write to the same
+  // document — and a profile answered with 200 that then vanishes is the same bug.
+  const made = await Promise.all(['Dee', 'Eve', 'Fay'].map(name =>
+    call('POST', '/api/profiles', { cookie: cookieFor('ann'), body: { name } })));
+  assert.ok(made.every(r => r.status === 200), 'all three are accepted: ' + made.map(r => r.status));
   const members = (await call('GET', '/api/team', { cookie: cookieFor('ann') })).json.team.members.map(m => m.name).sort();
-  assert.deepEqual(members, ['Ann', 'Ben', 'Cat'],
-    'a join answered with 200 must not be undone by another join landing at the same time');
+  assert.deepEqual(members, ['Ann', 'Ben', 'Cat', 'Dee', 'Eve', 'Fay'],
+    'a profile answered with 200 must not be undone by another created at the same time');
 });
 
 test('simultaneous publishes are all kept — none lost, none duplicated', async () => {

@@ -4,37 +4,24 @@
  * readSession, livePresence) rather than importing them, so this module stays free of a
  * cycle with server.js and can be mounted unchanged on the serverless entry point.
  *
- * Model: a profile is in at most one team. Membership is symmetric and total — every
- * member sees every other member's training, and any member may publish or edit a shared
- * scheme. That is deliberate (this is a training group, not a coaching platform); the
- * moment a private-by-default mode is wanted, it belongs on the member record here.
+ * Model: there is exactly one team and everyone on the instance is in it. No codes, no
+ * joining, no leaving — for a handful of friends on a server they share, the whole concept of
+ * membership was ceremony around a set that was always "everybody". Creating a profile is
+ * joining. Membership is symmetric and total: every member sees every other member's training,
+ * and any member may publish or edit a shared scheme.
  *
- * A team never stores workouts of its own. Progress is derived on read from each member's
- * own state blob, so there is exactly one copy of anyone's training and leaving a team
- * takes nothing with it.
+ * The team never stores workouts of its own. Progress is derived on read from each member's
+ * own state blob, so there is exactly one copy of anyone's training.
  */
 import crypto from 'node:crypto';
 
-const MAX_MEMBERS = 50;
 const MAX_PLANS = 30;
 const NAME_MAX = 40;
-// Ambiguous glyphs left out: a join code gets read off someone else's phone screen.
-const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const DEFAULT_NAME = 'The team';
 
 const dayMs = 86400000;
 const isoOf = d => new Date(d).toISOString().slice(0, 10);
 const daysAgoISO = n => isoOf(Date.now() - n * dayMs);
-
-export function newCode(db) {
-  for (let attempt = 0; attempt < 40; attempt++) {
-    const bytes = crypto.randomBytes(6);
-    const code = [...bytes].map(b => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
-    if (!(db.teams || []).some(t => t.code === code)) return code;
-  }
-  // 32^6 with 40 tries: unreachable short of a corrupted RNG, but a duplicate code would
-  // silently join someone to the wrong team, so fail loudly instead of returning one.
-  throw new Error('could not allocate a unique join code');
-}
 
 /* ---------- progress, derived from a member's own state ---------- */
 
@@ -108,41 +95,48 @@ async function feed(members, readState, limit) {
 }
 
 export function teamRoutes({ json, readBody, readSession, saveDb, db, readState, livePresence }) {
-  const teams = () => (db.teams = db.teams || []);
-  const teamById = id => teams().find(t => t.id === id) || null;
-  const memberUsers = team => team.members
-    .map(uid => db.users.find(u => u.id === uid))
-    .filter(Boolean);
-
-  /** Resolve the caller and the team they are in. Writes the error response itself. */
-  function requireTeam(req, res) {
-    const user = readSession(req);
-    if (!user) { json(res, 401, { error: 'not signed in' }); return null; }
-    const team = user.teamId ? teamById(user.teamId) : null;
-    if (!team) { json(res, 404, { error: 'not in a team' }); return null; }
-    return { user, team };
+  /**
+   * The one team. Created on first read rather than at boot, so a fresh instance carries no
+   * team record until somebody actually looks.
+   *
+   * Also migrates the previous shape: teams used to be a list you joined with a code, and an
+   * instance upgraded in place would otherwise silently lose the schemes published under it.
+   */
+  function theTeam() {
+    if (!db.team) {
+      const old = Array.isArray(db.teams) ? db.teams : [];
+      const carried = old.flatMap(t => t.plans || []);
+      db.team = {
+        name: old.find(t => t.name)?.name || DEFAULT_NAME,
+        plans: carried,
+        createdAt: old[0]?.createdAt || Date.now()
+      };
+      delete db.teams;
+      // Membership used to live on the user record; it is now implied by existing.
+      for (const u of db.users) delete u.teamId;
+      saveDb();
+    }
+    db.team.plans = db.team.plans || [];
+    return db.team;
   }
 
-  /** Drop a profile from whatever team it is in. Returns true if anything changed. */
-  function leave(user) {
-    const team = user.teamId ? teamById(user.teamId) : null;
-    delete user.teamId;
-    if (!team) return false;
-    team.members = team.members.filter(id => id !== user.id);
-    // A team with nobody left in it is not a team — and keeping it would hold its join
-    // code out of circulation forever.
-    if (!team.members.length) db.teams = teams().filter(t => t.id !== team.id);
-    return true;
+  // Everyone on the instance, minus anyone an admin has disabled.
+  const memberUsers = () => db.users.filter(u => !u.disabled);
+
+  /** Resolve the caller. Writes the error response itself. */
+  function requireUser(req, res) {
+    const user = readSession(req);
+    if (!user) { json(res, 401, { error: 'not signed in' }); return null; }
+    return { user, team: theTeam() };
   }
 
   const publicTeam = async (team, user) => ({
-    id: team.id, name: team.name, code: team.code,
+    name: team.name,
     createdAt: team.createdAt,
-    members: await Promise.all(memberUsers(team).map(async u => {
+    members: await Promise.all(memberUsers().map(async u => {
       const live = livePresence(u.id);
       return {
         id: u.id, name: u.name, you: u.id === user.id,
-        founder: u.id === team.createdBy,
         live: live ? { exIdx: live.exIdx, exTotal: live.exTotal, setsDone: live.setsDone, setsTotal: live.setsTotal, startedAt: live.startedAt } : null,
         ...summarize(await readState(u.id))
       };
@@ -155,61 +149,14 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
   });
 
   return {
-    // The team the caller is in, with every member's progress. 200 with team:null rather
-    // than 404 — "you have no team yet" is the first screen, not an error.
+    // Everyone, with their progress. There is no "you have no team yet" state to handle.
     'GET /api/team': async (req, res) => {
-      const user = readSession(req);
-      if (!user) return json(res, 401, { error: 'not signed in' });
-      const team = user.teamId ? teamById(user.teamId) : null;
-      json(res, 200, { team: team ? await publicTeam(team, user) : null });
-    },
-
-    'POST /api/team/create': async (req, res) => {
-      const user = readSession(req);
-      if (!user) return json(res, 401, { error: 'not signed in' });
-      const body = await readBody(req);
-      const name = String(body.name || '').trim().slice(0, NAME_MAX);
-      if (!name) return json(res, 400, { error: 'name required' });
-      if (user.teamId && teamById(user.teamId)) return json(res, 409, { error: 'already in a team' });
-      const team = {
-        id: crypto.randomBytes(9).toString('base64url'),
-        name, code: newCode(db),
-        createdBy: user.id, createdAt: Date.now(),
-        members: [user.id], plans: []
-      };
-      teams().push(team);
-      user.teamId = team.id;
-      saveDb();
-      json(res, 200, { team: await publicTeam(team, user) });
-    },
-
-    'POST /api/team/join': async (req, res) => {
-      const user = readSession(req);
-      if (!user) return json(res, 401, { error: 'not signed in' });
-      const body = await readBody(req);
-      // Codes get typed by hand off another phone; spaces and dashes are the user's, not ours.
-      const code = String(body.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const team = teams().find(t => t.code === code);
-      if (!team) return json(res, 404, { error: 'no team with that code' });
-      if (team.members.includes(user.id)) { user.teamId = team.id; saveDb(); return json(res, 200, { team: await publicTeam(team, user) }); }
-      if (team.members.length >= MAX_MEMBERS) return json(res, 409, { error: 'that team is full' });
-      leave(user);
-      team.members.push(user.id);
-      user.teamId = team.id;
-      saveDb();
-      json(res, 200, { team: await publicTeam(team, user) });
-    },
-
-    'POST /api/team/leave': async (req, res) => {
-      const user = readSession(req);
-      if (!user) return json(res, 401, { error: 'not signed in' });
-      leave(user);
-      saveDb();
-      json(res, 200, { ok: true, team: null });
+      const ctx = requireUser(req, res); if (!ctx) return;
+      json(res, 200, { team: await publicTeam(ctx.team, ctx.user) });
     },
 
     'POST /api/team/rename': async (req, res) => {
-      const ctx = requireTeam(req, res); if (!ctx) return;
+      const ctx = requireUser(req, res); if (!ctx) return;
       const body = await readBody(req);
       const name = String(body.name || '').trim().slice(0, NAME_MAX);
       if (!name) return json(res, 400, { error: 'name required' });
@@ -220,23 +167,23 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
 
     // Recent sessions across the whole team, newest first.
     'GET /api/team/feed': async (req, res) => {
-      const ctx = requireTeam(req, res); if (!ctx) return;
+      const ctx = requireUser(req, res); if (!ctx) return;
       const url = new URL(req.url, 'http://x');
       const limit = Math.min(200, Math.max(1, +url.searchParams.get('limit') || 60));
-      json(res, 200, { feed: await feed(memberUsers(ctx.team), readState, limit) });
+      json(res, 200, { feed: await feed(memberUsers(), readState, limit) });
     },
 
     // Publish a scheme to the team. The body is the same bundle the existing plan-share
     // file carries, so a shared scheme and a shared file are the same thing at both ends —
     // routines, the week schedule and the custom exercises they reference. Never workouts.
     'POST /api/team/plans': async (req, res) => {
-      const ctx = requireTeam(req, res); if (!ctx) return;
+      const ctx = requireUser(req, res); if (!ctx) return;
       const body = await readBody(req);
       const bundle = body.bundle;
       if (!bundle || !Array.isArray(bundle.routines)) return json(res, 400, { error: 'a plan is required' });
       const name = String(body.name || '').trim().slice(0, NAME_MAX) || (ctx.user.name + "'s plan");
-      const plans = (ctx.team.plans = ctx.team.plans || []);
-      if (plans.length >= MAX_PLANS) return json(res, 409, { error: 'this team has too many plans — delete one first' });
+      const plans = ctx.team.plans;
+      if (plans.length >= MAX_PLANS) return json(res, 409, { error: 'too many plans — delete one first' });
       plans.push({
         id: crypto.randomBytes(9).toString('base64url'),
         name, note: String(body.note || '').trim().slice(0, 200),
@@ -250,9 +197,9 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
     // The full bundle for one plan — fetched only when someone opens or imports it, so the
     // team screen itself stays small however many schemes are on it.
     'GET /api/team/plan': async (req, res) => {
-      const ctx = requireTeam(req, res); if (!ctx) return;
+      const ctx = requireUser(req, res); if (!ctx) return;
       const id = new URL(req.url, 'http://x').searchParams.get('id');
-      const plan = (ctx.team.plans || []).find(p => p.id === id);
+      const plan = ctx.team.plans.find(p => p.id === id);
       if (!plan) return json(res, 404, { error: 'no such plan' });
       json(res, 200, { plan });
     },
@@ -260,9 +207,9 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
     // Replace a published scheme in place, keeping its id, so members who already took it
     // are looking at the same plan rather than a second copy of it.
     'POST /api/team/plans/update': async (req, res) => {
-      const ctx = requireTeam(req, res); if (!ctx) return;
+      const ctx = requireUser(req, res); if (!ctx) return;
       const body = await readBody(req);
-      const plan = (ctx.team.plans || []).find(p => p.id === body.id);
+      const plan = ctx.team.plans.find(p => p.id === body.id);
       if (!plan) return json(res, 404, { error: 'no such plan' });
       if (body.bundle) {
         if (!Array.isArray(body.bundle.routines)) return json(res, 400, { error: 'a plan is required' });
@@ -278,20 +225,19 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
     },
 
     'POST /api/team/plans/remove': async (req, res) => {
-      const ctx = requireTeam(req, res); if (!ctx) return;
+      const ctx = requireUser(req, res); if (!ctx) return;
       const body = await readBody(req);
-      ctx.team.plans = (ctx.team.plans || []).filter(p => p.id !== body.id);
+      ctx.team.plans = ctx.team.plans.filter(p => p.id !== body.id);
       saveDb();
       json(res, 200, { team: await publicTeam(ctx.team, ctx.user) });
     },
 
     // One member's training in full, for the profile screen behind a name in the feed.
     'GET /api/team/member': async (req, res) => {
-      const ctx = requireTeam(req, res); if (!ctx) return;
+      const ctx = requireUser(req, res); if (!ctx) return;
       const id = new URL(req.url, 'http://x').searchParams.get('id');
-      if (!ctx.team.members.includes(id)) return json(res, 404, { error: 'not a member of your team' });
-      const u = db.users.find(x => x.id === id);
-      if (!u) return json(res, 404, { error: 'not a member of your team' });
+      const u = memberUsers().find(x => x.id === id);
+      if (!u) return json(res, 404, { error: 'no such member' });
       const st = (await readState(id)) || {};
       json(res, 200, {
         member: {
@@ -299,9 +245,7 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
           ...summarize(st),
           // Enough for the charts on a member page, and nothing that isn't training:
           // no settings, no push subscriptions, no Coach state.
-          // Newest first, and sorted here rather than in the client for the same reason
-          // `last` is a max — the stored order is not a guarantee.
-          history: [...(st.workouts || [])].sort((a, b) => (a.d < b.d ? 1 : a.d > b.d ? -1 : 0)).slice(0, 120),
+          history: (st.workouts || []).slice(-120),
           bodyweight: (st.bodyweight || []).slice(-365),
           exWeights: st.exWeights || {},
           customEx: st.customEx || [],

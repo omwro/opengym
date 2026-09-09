@@ -1,53 +1,85 @@
-import { useStore } from '../store/useStore.js'
+import { useState, useRef, useEffect } from 'react'
+import { useStore, hasData } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
-import { webauthnOK, passkeyLogin, passkeyRegister, api, BIO } from '../lib/api.js'
-import { hasData } from '../store/useStore.js'
+import { listProfiles, login, createProfile } from '../lib/api.js'
 import { t } from '../lib/i18n.js'
 import { DEMO, REPO } from '../lib/demo.js'
-import { useState, useRef, useEffect } from 'react'
 import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 
-function RegisterSheet({ close }) {
+/* The first profile on a fresh instance.
+ *
+ * This is the only place a profile can be made without being signed in, because there is
+ * nobody to sign in as yet. Every profile after this one is added from inside the app, by
+ * somebody already using it. */
+function FirstProfileSheet({ onDone, close }) {
   const { setUser, pushState, pullState } = useStore()
+  const toast = useUI(s => s.toast)
   const [name, setName] = useState('')
-  const [code, setCode] = useState('')
-  const [inviteOnly, setInviteOnly] = useState(false)
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
   const ref = useRef(null)
   useEffect(() => { setTimeout(() => ref.current?.focus(), 250) }, [])
-  useEffect(() => { api('/api/config').then(c => setInviteOnly(!!c.invite_only)).catch(() => {}) }, [])
+
   const go = async () => {
     const n = name.trim()
-    if (!n) { useUI.getState().toast(t('Enter a name')); return }
-    if (inviteOnly && !code.trim()) { useUI.getState().toast(t('An invite code is required')); return }
+    if (!n) { toast(t('Enter a name')); return }
+    if (!password) { toast(t('Enter the password')); return }
+    setBusy(true)
     try {
-      const u = await passkeyRegister(n, code.trim())
-      setUser(u); close()
-      if (hasData(useStore.getState().S)) { await pushState(); useUI.getState().toast(t('Profile created — data from this device moved into it')) }
-      else { await pullState(); useUI.getState().toast(t('Welcome, {0}', u.name)) }
-    } catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') useUI.getState().toast(e.message || t('Registration failed')) }
+      const u = await createProfile(n, password)
+      setUser(u); close(); onDone?.()
+      // Someone who has been training in guest mode keeps what they logged.
+      if (hasData(useStore.getState().S)) { await pushState(); toast(t('Profile created — data from this device moved into it')) }
+      else { await pullState(); toast(t('Welcome, {0}', u.name)) }
+    } catch (e) { toast(e.message || t('Could not create the profile')) }
+    finally { setBusy(false) }
   }
+
   return <>
-    <h3>{t('Create your profile')}</h3>
-    <div className="muted small" style={{ marginBottom: 14 }}>{t('Pick a name, then confirm with {0}. The passkey is saved in your device — no password needed.', BIO)}</div>
-    <input ref={ref} className="input" placeholder={t('Your name')} maxLength={40} value={name} onChange={e => setName(e.target.value)} />
-    {inviteOnly && <>
-      <div style={{ height: 10 }} />
-      <input className="input" placeholder={t('Invite code')} maxLength={40} value={code}
-        onChange={e => setCode(e.target.value.toUpperCase())} style={{ letterSpacing: '.14em', fontWeight: 600, textAlign: 'center' }} />
-      <div className="dim small" style={{ marginTop: 6 }}>{t('This app is invite-only — enter the code you were given.')}</div>
-    </>}
+    <h3>{t('Create the first profile')}</h3>
+    <div className="muted small" style={{ marginBottom: 14 }}>
+      {t('This server has no profiles yet. Once yours exists, everyone else is added from inside the app.')}
+    </div>
+    <input ref={ref} className="input" placeholder={t('Your name')} maxLength={40}
+      value={name} onChange={e => setName(e.target.value)} />
+    <div style={{ height: 10 }} />
+    <input className="input" type="password" placeholder={t('Password')} autoComplete="new-password"
+      value={password} onChange={e => setPassword(e.target.value)}
+      onKeyDown={e => e.key === 'Enter' && go()} />
     <div style={{ height: 12 }} />
-    <Button variant="primary" onClick={go}>{t('Create passkey')}</Button>
+    <Button variant="primary" disabled={busy} onClick={go}>{t('Create profile')}</Button>
   </>
 }
 
 export default function Login() {
   const { setUser, pullState, setGuest } = useStore()
+  const toast = useUI(s => s.toast)
+  const [profiles, setProfiles] = useState(null)   // null = still loading
+  const [empty, setEmpty] = useState(false)
+  const [picked, setPicked] = useState(null)
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const pwRef = useRef(null)
+
+  const load = () => listProfiles()
+    .then(r => { setProfiles(r.profiles); setEmpty(r.empty) })
+    .catch(() => setProfiles([]))
+  useEffect(() => { if (!DEMO) load() }, [])
+  useEffect(() => { if (picked) setTimeout(() => pwRef.current?.focus(), 120) }, [picked])
+
   const signIn = async () => {
-    try { const u = await passkeyLogin(); setUser(u); await pullState(); useUI.getState().toast(t('Welcome back, {0}', u.name)) }
-    catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') useUI.getState().toast(e.message || t('Sign-in failed')) }
+    if (!password) { toast(t('Enter the password')); return }
+    setBusy(true)
+    try {
+      const u = await login(picked.id, password)
+      setUser(u); setPassword('')
+      await pullState()
+      toast(t('Welcome back, {0}', u.name))
+    } catch (e) { toast(e.message || t('Sign-in failed')); setPassword('') }
+    finally { setBusy(false) }
   }
+
   const head = <>
     <div style={{ fontSize: 54, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}><Icon name="dumbbell" /></div>
     <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-.028em', margin: '10px 0 4px' }}>openGym</h1>
@@ -61,7 +93,7 @@ export default function Login() {
       <div className="muted" style={{ marginBottom: 30 }}>{t('Live demo — everything stays in this browser.')}</div>
       <Button variant="primary" icon="sparkles" onClick={() => setGuest(true)}>{t('Start the demo')}</Button>
       <div className="card small muted" style={{ textAlign: 'left', marginTop: 16 }}>
-        {t('This demo runs entirely in your browser on example data — nothing is sent anywhere. Passkey sign-in and sync across your devices come with the openGym server, which you get by self-hosting it.')}
+        {t('This demo runs entirely in your browser on example data — nothing is sent anywhere. Sign-in and sync across your devices come with the openGym server, which you get by self-hosting it.')}
       </div>
       <div className="dim small" style={{ marginTop: 22, lineHeight: 1.6 }}>
         <a href={REPO} target="_blank" rel="noopener">{t('Self-host it in a minute →')}</a>
@@ -69,18 +101,59 @@ export default function Login() {
     </div>
   )
 
+  // A profile is chosen: ask for the password. Kept as a separate step so the picker stays a
+  // list of names rather than a wall of inputs, and so the browser can offer to remember it.
+  if (picked) return (
+    <div className="narrow" style={wrap}>
+      {head}
+      <div className="muted" style={{ marginBottom: 26 }}>{t('Signing in as {0}', picked.name)}</div>
+      <input ref={pwRef} className="input" type="password" placeholder={t('Password')}
+        autoComplete="current-password" value={password}
+        onChange={e => setPassword(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && signIn()} />
+      <div style={{ height: 12 }} />
+      <Button variant="primary" icon="person" disabled={busy} onClick={signIn}>{t('Sign in')}</Button>
+      <div style={{ height: 10 }} />
+      <Button variant="ghost" className="dim" onClick={() => { setPicked(null); setPassword('') }}>{t('Pick a different profile')}</Button>
+    </div>
+  )
+
   return (
     <div className="narrow" style={wrap}>
       {head}
-      <div className="muted" style={{ marginBottom: 34 }}>{t('Your workouts. Your weights. Your profile.')}</div>
-      {webauthnOK() ? <>
-        <Button variant="primary" icon="person" onClick={signIn}>{t('Sign in with passkey')}</Button>
-        <div style={{ height: 10 }} />
-        <Button icon="sparkles" onClick={() => useUI.getState().openSheet(close => <RegisterSheet close={close} />)}>{t('Create new profile')}</Button>
-        <div style={{ height: 10 }} />
-      </> : <div className="card small muted" style={{ textAlign: 'left' }}>{t("This browser doesn't support passkeys — you can still use openGym locally on this device.")}</div>}
+      <div className="muted" style={{ marginBottom: 30 }}>{t('Your workouts. Your weights. Your profile.')}</div>
+
+      {profiles === null
+        ? <div className="dim small">{t('Loading…')}</div>
+        : empty
+          ? <>
+              <Button variant="primary" icon="sparkles"
+                onClick={() => useUI.getState().openSheet(close => <FirstProfileSheet close={close} onDone={load} />)}>
+                {t('Create the first profile')}
+              </Button>
+              <div className="card small muted" style={{ textAlign: 'left', marginTop: 16 }}>
+                {t('Nobody has signed up on this server yet. Create your profile, then add the others from inside the app.')}
+              </div>
+            </>
+          : <>
+              <div className="lbl2" style={{ marginBottom: 8 }}>{t("Who's training?")}</div>
+              <div className="list">
+                {profiles.map(p => (
+                  <button key={p.id} className="item" onClick={() => setPicked(p)}>
+                    <span className="lrow-i"><Icon name="personCircle" /></span>
+                    <div style={{ flex: 1, minWidth: 0, textAlign: 'left', fontWeight: 600 }}>{p.name}</div>
+                    <Icon name="chevronRight" className="chev" />
+                  </button>
+                ))}
+              </div>
+            </>}
+
+      <div style={{ height: 14 }} />
       <Button variant="ghost" className="dim" onClick={() => setGuest(true)}>{t('Continue without account')}</Button>
-      <div className="dim small" style={{ marginTop: 26, lineHeight: 1.5 }}>{t('Passkeys use {0} — no passwords.', BIO)}<br />{t('Each profile keeps its own plan, workouts & body weight.')}</div>
+      <div className="dim small" style={{ marginTop: 26, lineHeight: 1.5 }}>
+        {t('One password for everyone on this server.')}<br />
+        {t('Each profile keeps its own plan, workouts & body weight.')}
+      </div>
     </div>
   )
 }

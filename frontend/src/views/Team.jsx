@@ -6,7 +6,6 @@
  * to yours, exactly as importing their plan file would, so nothing you built is overwritten.
  */
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { fmtDate, fmtNum, fmtVol, todayISO } from '../lib/format.js'
@@ -30,39 +29,30 @@ function rel(iso) {
   return fmtDate(iso)
 }
 
-/* ============================ no team yet ============================ */
+/* ============================ renaming ============================ */
 
-function Start({ onTeam }) {
-  const [name, setName] = useState('')
-  const [code, setCode] = useState('')
+function RenameSheet({ name: current, onChanged, close }) {
+  const [name, setName] = useState(current)
   const [busy, setBusy] = useState(false)
   const toast = useUI(s => s.toast)
-
-  const run = (fn, arg) => {
-    if (busy) return
+  const save = () => {
+    const n = name.trim()
+    if (!n || busy) return
     setBusy(true)
-    fn(arg).then(({ team }) => onTeam(team)).catch(e => toast(e.message)).finally(() => setBusy(false))
+    T.renameTeam(n)
+      .then(({ team }) => { onChanged(team); close(); toast(t('Renamed to {0}', n)) })
+      .catch(e => toast(e.message))
+      .finally(() => setBusy(false))
   }
-
   return <>
-    <div className="empty">
-      <div className="ico"><Icon name="personCircle" /></div>
-      {t('Train with other people. Share the schemes you write, and see what everyone actually logged.')}
+    <h3>{t('Name this team')}</h3>
+    <div className="muted small" style={{ marginBottom: 14 }}>
+      {t('Everyone on this server is in it — the name is just what you call yourselves.')}
     </div>
-    <div className="card">
-      <h4 style={{ marginBottom: 8 }}>{t('Start a team')}</h4>
-      <TextField value={name} onChange={e => setName(e.target.value)} placeholder={t('Team name')} maxLength={40} />
-      <div style={{ height: 10 }} />
-      <Button variant="primary" icon="plus" disabled={!name.trim() || busy} onClick={() => run(T.createTeam, name.trim())}>{t('Create team')}</Button>
-      <div className="dim small" style={{ margin: '7px 2px 0', lineHeight: 1.4 }}>{t('You get a join code to pass around. Anyone with it is in.')}</div>
-    </div>
-    <div className="card">
-      <h4 style={{ marginBottom: 8 }}>{t('Got a code?')}</h4>
-      <TextField value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="ABC123"
-        autoCapitalize="characters" autoCorrect="off" spellCheck={false} maxLength={12} />
-      <div style={{ height: 10 }} />
-      <Button variant="tinted" icon="link" disabled={code.trim().length < 4 || busy} onClick={() => run(T.joinTeam, code.trim())}>{t('Join team')}</Button>
-    </div>
+    <TextField value={name} onChange={e => setName(e.target.value)} maxLength={40}
+      onKeyDown={e => e.key === 'Enter' && save()} />
+    <div style={{ height: 12 }} />
+    <Button variant="primary" icon="check" disabled={!name.trim() || busy} onClick={save}>{t('Save')}</Button>
   </>
 }
 
@@ -250,20 +240,14 @@ function Feed({ enabled }) {
 /* ============================ screen ============================ */
 
 export default function Team() {
-  const nav = useNavigate()
   const user = useStore(s => s.user)
-  const setUser = useStore(s => s.setUser)
   const toast = useUI(s => s.toast)
   const enabled = T.teamsAvailable(user)
   const { team, loading, setTeam } = useTeam(enabled)
   const [tab, setTab] = useState('members')
-
-  // The store's copy of `user` carries teamId (Home reads it to decide whether to show the
-  // team card), so joining or leaving here has to update it too.
-  const adopt = next => {
-    setTeam(next)
-    if (user && (user.teamId || null) !== (next?.id || null)) setUser({ ...user, teamId: next?.id || null })
-  }
+  // Nothing to reconcile onto the signed-in user any more: membership is not stored on the
+  // profile, it is implied by the profile existing.
+  const adopt = setTeam
 
   if (!enabled) return <div className="narrow">
     <div className="hdr"><h1>{t('Team')}</h1></div>
@@ -272,24 +256,14 @@ export default function Team() {
 
   if (loading && !team) return <div className="narrow"><div className="hdr"><h1>{t('Team')}</h1></div><div className="muted small">{t('Loading…')}</div></div>
 
+  // Not "no team" — there is always a team. This is the first load failing (offline, or the
+  // session expired), and it must not fall through to reading team.name.
   if (!team) return <div className="narrow">
-    <div className="hdr">
-      <div><h1>{t('Team')}</h1><div className="sub">{t('Not in a team yet')}</div></div>
-      <button className="iconbtn" onClick={() => nav('/home')} aria-label={t('Home')}><Icon name="house" /></button>
-    </div>
-    <Start onTeam={adopt} />
+    <div className="hdr"><h1>{t('Team')}</h1></div>
+    <div className="empty">{t("Couldn't reach the server. It'll load again as soon as you're back online.")}</div>
   </div>
 
-  const copyCode = () => {
-    navigator.clipboard?.writeText(team.code).catch(() => {})
-    toast(t('Code {0} copied', team.code))
-  }
-  const leave = () => confirmSheet({
-    title: t('Leave {0}?', team.name),
-    message: t('You stop seeing the team and it stops seeing you. Your own training and any routines you took are untouched.'),
-    confirmText: t('Leave'), danger: true,
-    onConfirm: () => T.leaveTeam().then(() => adopt(null)).catch(e => toast(e.message))
-  })
+  const rename = () => ui().openSheet(close => <RenameSheet name={team.name} onChanged={adopt} close={close} />)
   const openMember = m => ui().openSheet(close => <MemberSheet id={m.id} close={close} />)
   const openPlan = p => ui().openSheet(close => <PlanSheet plan={p} onChanged={adopt} close={close} />)
   const share = () => ui().openSheet(close => <ShareSheet onChanged={adopt} close={close} />)
@@ -301,16 +275,8 @@ export default function Team() {
   return <div className="narrow">
     <div className="hdr">
       <div><h1>{team.name}</h1><div className="sub">{t(team.members.length === 1 ? '{0} member' : '{0} members', team.members.length)}</div></div>
-      <button className="iconbtn" onClick={leave} aria-label={t('Leave team')}><Icon name="signOut" /></button>
+      <button className="iconbtn" onClick={rename} aria-label={t('Rename team')}><Icon name="pencil" /></button>
     </div>
-
-    <button className="card tappable row between" style={{ width: '100%', cursor: 'pointer' }} onClick={copyCode}>
-      <div style={{ textAlign: 'left' }}>
-        <div className="lbl2">{t('Join code')}</div>
-        <div style={{ fontSize: 26, fontWeight: 600, letterSpacing: '.12em' }}>{team.code}</div>
-      </div>
-      <Icon name="link" className="chev" style={{ fontSize: 20 }} />
-    </button>
 
     {liveNow.length > 0 && <div className="card" style={{ borderColor: 'var(--orange)' }}>
       <div className="row" style={{ gap: 9 }}>

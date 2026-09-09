@@ -44,20 +44,26 @@ The ~140 MB of exercise images and GIFs are not deployed — there is nowhere to
 |---|---|---|
 | `SUPABASE_URL` | yes | Project URL. Its presence is what selects the Supabase backend. `NEXT_PUBLIC_SUPABASE_URL` is accepted too, so Vercel's Supabase integration works with nothing added by hand. |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | Service-role key. Server-side only. `SUPABASE_SECRET_KEY` is accepted as an alias. The anon and publishable keys will **not** work — every table here is policy-less, so they can read nothing. |
-| `RP_ID` | yes | Your domain, host only — `opengym.vercel.app`, no scheme, no path. |
-| `ORIGIN` | yes | Full origin — `https://opengym.vercel.app`. |
-| `RP_NAME` | no | Shown in the passkey prompt. Defaults to `openGym`. |
+| `APP_PASSWORD` | yes | The one password everyone on this instance types. Defaults to `shoarmasate` — change it. |
+| `ORIGIN` | no | Full origin, e.g. `https://opengym.vercel.app`. Only used as the fallback when a request arrives without a proxy scheme header, and for the push contact address. |
 | `ADMIN_UIDS` | no | Comma-separated user ids that get the admin dashboard. |
-| `INVITE_ONLY` | no | `1` to require an invite code to sign up. |
 | `SESSION_DAYS` | no | Cookie lifetime, default 90. |
 | `VAPID_SUBJECT` | no | Contact URL for push. Defaults to `ORIGIN`. |
 
-`RP_ID` and `ORIGIN` must agree, and both must match the address people actually load. This is
-the single most common reason passkeys fail: a passkey registered on one domain cannot be used
-on another, so a preview deployment's URL will not work with production credentials.
+There is nothing here that has to match the domain. Sign-in is a password, so a new deployment
+URL, a preview branch and a custom domain all work the same and none of them needs a variable
+updated to keep working.
 
 The session secret and the Web Push keypair are generated on first boot and stored in `kv`, so
 every instance agrees on them. Nothing to configure.
+
+### About the password
+
+One password for the whole instance, and profiles behind it. Anyone who has it can open any
+profile here — it says whose log you are looking at, not who you are. That is the intended
+trade for a group of friends sharing a server, and it is worth knowing rather than assuming
+otherwise. Wrong guesses are rate-limited per instance, but the real protection is that the
+password is only given to people you train with.
 
 ## 4. Bringing existing data with you
 
@@ -75,8 +81,8 @@ breaks. It refuses to run against a deployment that already has profiles unless 
 ## 5. Installing on phones
 
 There is no app to sideload for this deployment. Open the site in Safari (iOS) or Chrome
-(Android) and add it to the home screen; it installs as a PWA with passkey sign-in, offline
-support and push. Passkeys and push both require HTTPS, which Vercel gives you.
+(Android) and add it to the home screen; it installs as a PWA with offline support and push.
+Push requires HTTPS, which Vercel gives you.
 
 The standalone Android APK is a different build with no backend at all — it cannot join a team,
 because there is no server for it to share anything with.

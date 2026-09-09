@@ -17,7 +17,7 @@ const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-serverless-'));
 const SECRET = 'a'.repeat(64);
 fs.writeFileSync(path.join(DIR, 'secret'), SECRET);
 fs.writeFileSync(path.join(DIR, 'db.json'), JSON.stringify({
-  users: [{ id: 'ann', name: 'Ann' }, { id: 'ben', name: 'Ben' }], creds: [], subs: [], invites: [], teams: []
+  users: [{ id: 'ann', name: 'Ann' }, { id: 'ben', name: 'Ben' }], subs: [], team: null
 }));
 fs.writeFileSync(path.join(DIR, 'state-ann.json'), JSON.stringify({
   unit: 'kg', workouts: [{ id: 'w1', d: '2026-09-02', name: 'Push', vol: 5000, prs: [], entries: [] }], bodyweight: [], routines: []
@@ -60,7 +60,7 @@ test('the original path survives the rewrite onto a single function', async () =
 
 test('a query string survives it too', async () => {
   const ann = cookieFor('ann');
-  await call('POST', '/api/team/create', { cookie: ann, body: { name: 'Iron' } });
+  await call('POST', '/api/team/rename', { cookie: ann, body: { name: 'Iron' } });
   const r = await call('GET', '/api/team/feed?limit=1', { cookie: ann });
   assert.equal(r.status, 200);
   assert.equal(r.json.feed.length, 1, 'limit=1 reached the handler');
@@ -74,9 +74,9 @@ test('authentication works — the session cookie is read off the rewritten requ
 
 test('a body the platform already parsed is used instead of the consumed stream', async () => {
   const ben = cookieFor('ben');
-  const created = await call('POST', '/api/team/create', { cookie: ben, body: { name: "Ben's crew" } });
-  assert.equal(created.status, 200);
-  assert.equal(created.json.team.name, "Ben's crew");
+  const renamed = await call('POST', '/api/team/rename', { cookie: ben, body: { name: "Ben's crew" } });
+  assert.equal(renamed.status, 200);
+  assert.equal(renamed.json.team.name, "Ben's crew");
   // and validation still runs on it
   assert.equal((await call('POST', '/api/team/rename', { cookie: ben, body: {} })).status, 400);
 });
@@ -85,7 +85,7 @@ test('a write is committed, not just held in memory', async () => {
   const ben = cookieFor('ben');
   await call('POST', '/api/team/rename', { cookie: ben, body: { name: 'Barbell Club' } });
   const onDisk = JSON.parse(fs.readFileSync(path.join(DIR, 'db.json'), 'utf8'));
-  assert.ok(onDisk.teams.some(t => t.name === 'Barbell Club'), 'the store has it, not only this instance');
+  assert.equal(onDisk.team.name, 'Barbell Club', 'the store has it, not only this instance');
   // and a later request — a fresh reload of db — still sees it
   assert.equal((await call('GET', '/api/team', { cookie: ben })).json.team.name, 'Barbell Club');
 });

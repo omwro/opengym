@@ -1,9 +1,6 @@
-// Backend + WebAuthn helpers (ported from the vanilla app).
+// Backend helpers.
 export const IS_APPLE = /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent)
 export const IS_ANDROID = /Android/.test(navigator.userAgent)
-export const BIO = IS_APPLE ? 'Face ID / Touch ID' : IS_ANDROID ? 'fingerprint or face unlock' : 'your fingerprint, face or PIN'
-export const VAULT = IS_APPLE ? 'iCloud Keychain' : IS_ANDROID ? 'Google Password Manager' : 'your password manager'
-export const webauthnOK = () => !!(window.PublicKeyCredential && navigator.credentials)
 
 export async function api(path, opts) {
   const r = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts))
@@ -12,48 +9,28 @@ export async function api(path, opts) {
   return data
 }
 
-const bufToB64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-const b64uToBuf = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)).buffer
+/* ---------- sign-in ---------- */
+// One password for the instance, and a profile picked from a list. No passkeys, no per-user
+// credentials: everyone who trains here shares the password, and the profile only says whose
+// log you are opening.
 
-function toCreationOptions(o) {
-  o.challenge = b64uToBuf(o.challenge)
-  o.user.id = b64uToBuf(o.user.id)
-  ;(o.excludeCredentials || []).forEach(c => { c.id = b64uToBuf(c.id) })
-  return o
+/** Names for the sign-in picker. Public — it has to work before anyone is signed in. */
+export const listProfiles = () => api('/api/profiles')
+
+export async function login(id, password) {
+  const { user } = await api('/api/login', { method: 'POST', body: JSON.stringify({ id, password }) })
+  return user
 }
-function toRequestOptions(o) {
-  o.challenge = b64uToBuf(o.challenge)
-  ;(o.allowCredentials || []).forEach(c => { c.id = b64uToBuf(c.id) })
-  return o
-}
-function credToJSON(cred) {
-  const r = cred.response
-  const out = {
-    id: cred.id, rawId: bufToB64u(cred.rawId), type: cred.type,
-    clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
-    authenticatorAttachment: cred.authenticatorAttachment || null,
-    response: { clientDataJSON: bufToB64u(r.clientDataJSON) }
-  }
-  if (r.attestationObject) {
-    out.response.attestationObject = bufToB64u(r.attestationObject)
-    out.response.transports = r.getTransports ? r.getTransports() : ['internal']
-  }
-  if (r.authenticatorData) {
-    out.response.authenticatorData = bufToB64u(r.authenticatorData)
-    out.response.signature = bufToB64u(r.signature)
-    out.response.userHandle = r.userHandle ? bufToB64u(r.userHandle) : null
-  }
-  return out
-}
-export async function passkeyRegister(name, code) {
-  const { cid, options } = await api('/api/register/options', { method: 'POST', body: JSON.stringify({ name, code: code || '' }) })
-  const cred = await navigator.credentials.create({ publicKey: toCreationOptions(options) })
-  const res = await api('/api/register/verify', { method: 'POST', body: JSON.stringify({ cid, credential: credToJSON(cred) }) })
-  return res.user
-}
-export async function passkeyLogin() {
-  const { cid, options } = await api('/api/login/options', { method: 'POST', body: '{}' })
-  const cred = await navigator.credentials.get({ publicKey: toRequestOptions(options) })
-  const res = await api('/api/login/verify', { method: 'POST', body: JSON.stringify({ cid, credential: credToJSON(cred) }) })
-  return res.user
+
+/**
+ * Add a profile. Signed in, the password is not needed and your own session is left alone —
+ * you are setting someone else up. On an instance with no profiles at all the password stands
+ * in for the session that cannot exist yet, and the new profile is signed straight in.
+ */
+export async function createProfile(name, password) {
+  const { user } = await api('/api/profiles', {
+    method: 'POST',
+    body: JSON.stringify(password ? { name, password } : { name })
+  })
+  return user
 }

@@ -36,7 +36,7 @@ const kv = http.createServer(async (req, res) => {
 await new Promise(r => kv.listen(0, '127.0.0.1', r));
 
 table.set('secret', { value: { v: 'd'.repeat(64) }, version: 1 });
-table.set('db', { value: { users: [{ id: 'ann', name: 'Ann' }], creds: [], subs: [], invites: [], teams: [] }, version: 1 });
+table.set('db', { value: { users: [{ id: 'ann', name: 'Ann' }], subs: [], team: null }, version: 1 });
 
 process.env.SUPABASE_URL = `http://127.0.0.1:${kv.address().port}`;
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -78,8 +78,8 @@ test('a refused write is logged and resynced, not left to crash the process', as
 
     let status = 0;
     const res = { writeHead(c) { status = c; }, end() {}, headersSent: false };
-    await api.routes['POST /api/team/create'](
-      { method: 'POST', url: '/api/team/create', headers: { cookie }, body: { name: 'Iron' } }, res);
+    await api.routes['POST /api/team/rename'](
+      { method: 'POST', url: '/api/team/rename', headers: { cookie }, body: { name: 'Iron' } }, res);
     assert.equal(status, 200, 'the request itself succeeded — it is the write behind it that was refused');
 
     // Give the fire-and-forget chain time to reject and be handled.

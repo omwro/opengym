@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useStore, DEF, hasData } from '../store/useStore.js'
+import { useStore, DEF } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { ACCENTS, todayISO, localTZ } from '../lib/format.js'
 import { effortOf } from '../lib/history.js'
-import { webauthnOK, passkeyLogin, passkeyRegister, IS_ANDROID } from '../lib/api.js'
+import { createProfile, IS_ANDROID } from '../lib/api.js'
 import { pushSupported, enablePush, disablePush, sendTestPush } from '../lib/push.js'
 import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
@@ -51,17 +51,15 @@ export default function Settings() {
     }
     rd.readAsText(f)
   }
-  const signInHere = async () => {
-    try { const u = await passkeyLogin(); setUser(u); await pullState(); toast(t('Welcome back, {0}', u.name)) }
-    catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast(e.message || t('Sign-in failed')) }
-  }
-  const registerHere = () => useUI.getState().openSheet(close => <RegisterInline close={close} setUser={setUser} pushState={pushState} pullState={pullState} toast={toast} />)
+  // Adding someone to the instance. Deliberately does not touch your own session: you set a
+  // friend up, hand them the phone, and they sign in from the picker as themselves.
+  const addProfile = () => useUI.getState().openSheet(close => <AddProfileSheet close={close} toast={toast} />)
   // Ends the profile's sessions on every device — this one included, so on success it lands in
   // the same place as the plain sign-out above (home, local data cleared). On failure nothing
   // local is touched: still signed in here, and say so rather than leaving a half-signed-out app.
   const signOutEverywhere = () => confirmSheet({
     title: t('Sign out everywhere?'),
-    message: t('Signs this profile out on every device, including this one. Your passkeys keep working — sign in with them again anytime.'),
+    message: t('Signs this profile out on every device, including this one. Sign in again with the password anytime.'),
     confirmText: t('Sign out everywhere'), danger: true,
     onConfirm: async () => {
       try { await signOutAll(); nav('/home'); toast(t('Signed out on all devices')) }
@@ -79,24 +77,22 @@ export default function Settings() {
     <Section title={MOBILE ? t('Your data') : DEMO ? t('Demo') : t('Account')}>
       {MOBILE ? <>
         <Row icon="lock" iconTint="var(--acc)" title={t('All data stays on this phone')} subtitle={t('No account, no cloud — back it up anytime with Export below.')} />
-        <Row icon="rocket" iconTint="var(--indigo)" title={t('Self-host openGym')} subtitle={t('Passkey sign-in, sync across your devices, your own data.')} accessory="chevron"
+        <Row icon="rocket" iconTint="var(--indigo)" title={t('Self-host openGym')} subtitle={t('Sign-in, sync across your devices, your own data.')} accessory="chevron"
           onClick={() => window.open(REPO, '_blank', 'noopener')} />
       </> : DEMO ? <>
         <Row icon="sparkles" iconTint="var(--acc)" title={t('You’re in the demo')} subtitle={t('Example data, stored only in this browser — change anything you like.')} />
         <Row icon="reset" iconTint="var(--blue)" title={t('Reset demo data')} accessory="chevron"
           onClick={() => confirmSheet({ title: t('Reset demo data?'), message: t('Puts the example plan, workouts and weigh-ins back the way they started.'), confirmText: t('Reset'), onConfirm: () => { resetDemo(); nav('/home'); toast(t('Demo data reset')) } })} />
-        <Row icon="rocket" iconTint="var(--indigo)" title={t('Self-host openGym')} subtitle={t('Passkey sign-in, sync across your devices, your own data.')} accessory="chevron"
+        <Row icon="rocket" iconTint="var(--indigo)" title={t('Self-host openGym')} subtitle={t('Sign-in, sync across your devices, your own data.')} accessory="chevron"
           onClick={() => window.open(REPO, '_blank', 'noopener')} />
       </> : user ? <>
-        <Row icon="personCircle" iconTint="var(--grey)" title={user.name} subtitle={t('Signed in with passkey — data syncs to this profile.')} />
+        <Row icon="personCircle" iconTint="var(--grey)" title={user.name} subtitle={t('Signed in — data syncs to this profile.')} />
+        <Row icon="sparkles" iconTint="var(--acc)" title={t('Add a profile')} subtitle={t('For someone else training on this server')} accessory="chevron" onClick={addProfile} />
         {user.admin && <Row icon="wrench" iconTint="var(--indigo)" title={t('Admin dashboard')} accessory="chevron" onClick={() => nav('/admin')} />}
         <Row icon="signOut" iconTint="var(--red)" title={t('Sign out')} danger onClick={() => confirmSheet({ title: t('Sign out?'), message: t('Your data is synced to your profile first, then cleared from this device.'), confirmText: t('Sign out'), danger: true, onConfirm: () => { signOut(); nav('/home') } })} />
         <Row icon="shield" iconTint="var(--red)" title={t('Sign out everywhere')} subtitle={t('Ends this profile’s sessions on all your devices.')} danger onClick={signOutEverywhere} />
-      </> : webauthnOK() ? <>
-        <Row icon="sparkles" iconTint="var(--acc)" title={t('Create passkey profile')} subtitle={t('Keeps your data safe and separate per person.')} accessory="chevron" onClick={registerHere} />
-        <Row icon="person" iconTint="var(--blue)" title={t('Sign in with passkey')} accessory="chevron" onClick={signInHere} />
       </> : (
-        <Row icon="lock" iconTint="var(--grey)" title={t('Passkeys not supported in this browser.')} />
+        <Row icon="person" iconTint="var(--blue)" title={t('Sign in')} subtitle={t('Pick your profile and enter the password')} accessory="chevron" onClick={() => { signOut(); nav('/home') }} />
       )}
     </Section>
     {!user && !DEMO && !MOBILE && <p className="sect-f" style={{ marginTop: -18, marginBottom: 22 }}>{t('Guest mode — data lives only in this browser.')}</p>}
@@ -354,21 +350,31 @@ function PushCard({ S, update, toast }) {
   </>
 }
 
-function RegisterInline({ close, setUser, pushState, pullState, toast }) {
+/* Add somebody else to this instance.
+ *
+ * No password field: you are already signed in, and that is what authorises this. It also does
+ * not switch you over to the new profile — the person it is for signs in from the picker, which
+ * is what makes the profile theirs rather than a second one of yours. */
+function AddProfileSheet({ close, toast }) {
   const nameRef = useRef(null)
+  const [busy, setBusy] = useState(false)
   const go = async () => {
     const n = (nameRef.current.value || '').trim()
     if (!n) { toast(t('Enter a name')); return }
+    setBusy(true)
     try {
-      const u = await passkeyRegister(n); setUser(u); close()
-      if (hasData(useStore.getState().S)) { await pushState(); toast(t('Profile created — data moved into it')) }
-      else { await pullState(); toast(t('Welcome, {0}', u.name)) }
-    } catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast(e.message || t('Registration failed')) }
+      await createProfile(n)
+      close()
+      toast(t('{0} can now sign in with the password', n))
+    } catch (e) { toast(e.message || t('Could not create the profile')) }
+    finally { setBusy(false) }
   }
   return <>
-    <h3>{t('Create your profile')}</h3>
-    <div className="muted small" style={{ marginBottom: 14 }}>{t('Pick a name, then confirm with your device.')}</div>
-    <TextField ref={nameRef} placeholder={t('Your name')} maxLength={40} />
-    <div style={{ height: 12 }} /><Button variant="primary" onClick={go}>{t('Create passkey')}</Button>
+    <h3>{t('Add a profile')}</h3>
+    <div className="muted small" style={{ marginBottom: 14 }}>
+      {t('They pick their name on the sign-in screen and use the same password as everyone else. You stay signed in as yourself.')}
+    </div>
+    <TextField ref={nameRef} placeholder={t('Their name')} maxLength={40} onKeyDown={e => e.key === 'Enter' && go()} />
+    <div style={{ height: 12 }} /><Button variant="primary" disabled={busy} onClick={go}>{t('Create profile')}</Button>
   </>
 }

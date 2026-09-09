@@ -2,10 +2,6 @@
    No framework, JSON-file storage, signed session cookies.               */
 import http from 'node:http';
 import crypto from 'node:crypto';
-import {
-  generateRegistrationOptions, verifyRegistrationResponse,
-  generateAuthenticationOptions, verifyAuthenticationResponse
-} from '@simplewebauthn/server';
 import webpush from 'web-push';
 import { teamRoutes } from './teams.js';
 import { store, BACKEND } from './store.js';
@@ -32,35 +28,33 @@ const { startCadence } = COACH ? await import('./coach/cadence.js') : { startCad
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
-const RP_ID = process.env.RP_ID || 'localhost';
 const ORIGIN = process.env.ORIGIN || 'http://localhost:8080';
-// A passkey is bound to the exact hostname it was created on, and the browser refuses the
-// ceremony outright — "rp.id cannot be used with current origin" — if the id the server sends
-// is not the host in the address bar. On a fixed domain, configuration is the right answer and
-// RP_ID/ORIGIN below are used as given. On a platform that mints a new hostname per deployment
-// and per preview branch, no single configured value can be right for all of them, so when the
-// pair is NOT configured the identity is taken from the request instead.
+// Passkeys are gone, and with them the relying-party id that had to match the address bar
+// exactly — the single fiddliest thing about deploying this app, and the reason a new
+// deployment URL used to break sign-in until an environment variable caught up. A password
+// does not care what the host is called.
 //
-// Deriving from the Host header is safe here in the way that matters: the browser will only
-// complete a ceremony whose rp.id matches the origin it is actually on, so a forged header
-// cannot mint a credential for someone else's domain — it can only fail. Setting RP_ID and
-// ORIGIN explicitly pins it and is still the right thing behind a domain you control.
-const RP_CONFIGURED = !!(process.env.RP_ID && process.env.ORIGIN);
-function rpFor(req) {
-  if (RP_CONFIGURED) return { rpID: RP_ID, origin: ORIGIN };
-  const raw = req.headers['x-forwarded-host'] || req.headers.host || '';
-  const host = String(raw).split(',')[0].trim();
-  if (!host) return { rpID: RP_ID, origin: ORIGIN };
-  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
-    || (/^(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(host) ? 'http' : 'https');
-  // rp.id is a domain: no scheme, no port. The origin keeps both.
-  return { rpID: host.replace(/:\d+$/, ''), origin: `${proto}://${host}` };
+// All that survives is the one question the session cookie needs answered: is this connection
+// https? A Secure cookie over plain http is dropped by the browser, and sign-in then fails
+// silently, so it is read per request rather than assumed from configuration.
+function isHttps(req) {
+  const proto = String(req?.headers?.['x-forwarded-proto'] || '').split(',')[0].trim();
+  if (proto) return proto === 'https';
+  return /^https:/i.test(ORIGIN);
 }
-const RP_NAME = process.env.RP_NAME || 'openGym';
-// Admin dashboard (issue): admins are matched by uid; INVITE_ONLY gates new signups behind a
-// code the admin generates. Both default off so a fresh self-hosted instance stays open.
+// Admin dashboard (issue): admins are matched by uid.
 const ADMIN_UIDS = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
-const INVITE_ONLY = /^(1|true|yes|on)$/i.test(process.env.INVITE_ONLY || '');
+
+// One password for the whole instance, with profiles behind it.
+//
+// A deliberate trade for a handful of friends sharing one server: you pick your name from a
+// list and type the password everybody knows. This is not per-user authentication and does not
+// pretend to be — anyone with the password can open any profile here. That is the intent (a
+// shared training log, not a bank), but it is worth stating plainly, because the passkeys this
+// replaces really did identify individual people.
+//
+// Set APP_PASSWORD to your own; the default exists so a fresh instance boots.
+const APP_PASSWORD = process.env.APP_PASSWORD || 'shoarmasate';
 // 90 days keeps someone who trains a few times a week permanently signed in without a stolen
 // cookie staying good for a year. Overridable because a family instance and one on the open
 // internet don't want the same number. Only affects cookies minted from now on — the expiry is
@@ -69,9 +63,7 @@ const SESSION_DAYS = Math.max(1, +(process.env.SESSION_DAYS || 90) || 90);
 const MAX_BODY = 5 * 1024 * 1024;
 // Secure cookies require HTTPS; over plain http://localhost the flag would drop the cookie
 const SECURE = /^https:/i.test(ORIGIN) ? ' Secure;' : '';
-// Secure cookies are dropped over plain http, so the flag has to track the origin actually in
-// use — which, unconfigured, is per-request like the rp id above.
-const secureFor = req => (/^https:/i.test(rpFor(req).origin) ? ' Secure;' : '');
+const secureFor = req => (isHttps(req) ? ' Secure;' : '');
 
 /* ---------- secret + db ---------- */
 // Where any of this actually lives is store.js's problem: a directory on disk when openGym
@@ -80,13 +72,19 @@ const SECRET = await store.secret();
 
 // `const`, and refilled in place on reload: the route modules are handed this object once at
 // startup, so rebinding the name would leave them reading a copy that never changes again.
-const db = { users: [], creds: [], subs: [], invites: [], teams: [] };
+const db = { users: [], subs: [], team: null };
 let dbVersion = 0;
 async function reloadDb() {
   const loaded = await store.loadDb();
   dbVersion = loaded.version;
   for (const k of Object.keys(db)) delete db[k];
-  Object.assign(db, { users: [], creds: [], subs: [], invites: [], teams: [] }, loaded.db);
+  Object.assign(db, { users: [], subs: [], team: null }, loaded.db);
+  // Fields from the passkey era. Nothing reads them any more, and carrying them forward would
+  // keep rewriting a dead copy of everyone's credentials on every save. Dropped from the
+  // in-memory copy only — the next ordinary write is what actually removes them from the
+  // store, so this costs no extra round trip and needs no migration step to be run.
+  delete db.creds;
+  delete db.invites;
   return db;
 }
 await reloadDb();
@@ -276,20 +274,35 @@ function sessionCookie(user, req) {
 }
 const clearCookieFor = req => `gymsid=; Path=/; Max-Age=0; HttpOnly;${secureFor(req)} SameSite=Lax`;
 
-/* ---------- challenge store (in-memory, 5 min TTL) ---------- */
-const challenges = new Map(); // cid -> {challenge, name?, uid?, exp}
-function putChallenge(data) {
-  const cid = crypto.randomBytes(16).toString('base64url');
-  challenges.set(cid, { ...data, exp: Date.now() + 5 * 60000 });
-  return cid;
+/* ---------- sign-in throttle (in-memory) ---------- */
+// One shared password is one guessable secret, so a wrong answer has to cost the caller
+// something. Per-instance and best-effort — a serverless deployment spreads attempts across
+// instances — but the alternative is unlimited free guesses at a single password, which is the
+// one attack this design invites.
+const attempts = new Map();               // ip -> { n, until }
+const LOCK_AFTER = 8;
+const LOCK_MS = 60000;
+const clientIp = req => String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+  || req.socket?.remoteAddress || 'unknown';
+const throttled = req => {
+  const a = attempts.get(clientIp(req));
+  return !!(a && a.n >= LOCK_AFTER && Date.now() < a.until);
+};
+function noteAttempt(req, ok) {
+  const ip = clientIp(req);
+  if (ok) { attempts.delete(ip); return; }
+  const a = attempts.get(ip) || { n: 0, until: 0 };
+  a.n++; a.until = Date.now() + LOCK_MS;
+  attempts.set(ip, a);
 }
-function takeChallenge(cid) {
-  const c = challenges.get(cid);
-  challenges.delete(cid);
-  if (!c || c.exp < Date.now()) return null;
-  return c;
+setInterval(() => { for (const [k, v] of attempts) if (Date.now() > v.until + LOCK_MS) attempts.delete(k); }, 60000)?.unref();
+
+/** Constant-time check. Both sides are hashed first so the compare is length-independent. */
+function passwordOK(given) {
+  const a = crypto.createHash('sha256').update(String(given ?? '')).digest();
+  const b = crypto.createHash('sha256').update(APP_PASSWORD).digest();
+  return crypto.timingSafeEqual(a, b);
 }
-setInterval(() => { for (const [k, v] of challenges) if (v.exp < Date.now()) challenges.delete(k); }, 60000).unref();
 
 /* ---------- helpers ---------- */
 function json(res, code, obj, extraHeaders) {
@@ -319,7 +332,6 @@ function readBody(req) {
     req.on('error', reject);
   });
 }
-const b64uToBuf = s => Buffer.from(s, 'base64url');
 
 /* ---------- live presence (in-memory) ---------- */
 // Clients heartbeat /api/activity while a workout is on screen; the admin dashboard reads who's
@@ -344,107 +356,70 @@ export const routes = {
   // the app it was before the feature existed.
   'GET /api/config': async (req, res) => {
     const coach = coachConfig ? coachConfig.publicConfig() : null;
-    json(res, 200, { invite_only: INVITE_ONLY, ...(coach ? { coach } : {}) });
+    json(res, 200, { ...(coach ? { coach } : {}) });
   },
 
   'GET /api/me': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
-    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user), teamId: user.teamId || null } });
+    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user) } });
   },
 
-  'POST /api/register/options': async (req, res) => {
+  // The list the sign-in screen is built from. Public by necessity — you have to be able to
+  // pick your profile before you are signed in — and it deliberately carries nothing but a name
+  // and an id. On an instance shared by friends that is the intended amount of exposure; if you
+  // put this on the open internet, understand that the names are visible to anyone who loads it.
+  'GET /api/profiles': async (req, res) => {
+    json(res, 200, {
+      profiles: db.users
+        .filter(u => !u.disabled)
+        .map(u => ({ id: u.id, name: u.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      // Lets the client show "create the first profile" instead of an empty picker.
+      empty: db.users.filter(u => !u.disabled).length === 0
+    });
+  },
+
+  'POST /api/login': async (req, res) => {
+    if (throttled(req)) return json(res, 429, { error: 'too many attempts — wait a minute' });
     const body = await readBody(req);
+    const user = db.users.find(u => u.id === body.id);
+    // One message for both a wrong password and an unknown profile: telling them apart would
+    // turn the public profile list into a way to confirm which ids are real.
+    const ok = !!user && !user.disabled && passwordOK(body.password);
+    noteAttempt(req, ok);
+    if (!ok) return json(res, 401, { error: 'wrong password' });
+    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user) } },
+      { 'Set-Cookie': sessionCookie(user, req) });
+  },
+
+  // Adding a profile is something you do from inside — a friend hands you the phone, or you set
+  // theirs up. The one exception is a brand-new instance: with no profiles there is nobody to
+  // sign in as, so the password alone gets the first one made. Without that the app could never
+  // be started at all.
+  'POST /api/profiles': async (req, res) => {
+    const body = await readBody(req);
+    const signedIn = !!readSession(req);
+    const bootstrapping = db.users.filter(u => !u.disabled).length === 0;
+    if (!signedIn) {
+      if (!bootstrapping) return json(res, 401, { error: 'sign in first to add a profile' });
+      if (throttled(req)) return json(res, 429, { error: 'too many attempts — wait a minute' });
+      const ok = passwordOK(body.password);
+      noteAttempt(req, ok);
+      if (!ok) return json(res, 401, { error: 'wrong password' });
+    }
     const name = String(body.name || '').trim().slice(0, 40);
     if (!name) return json(res, 400, { error: 'name required' });
-    const code = String(body.code || '').trim().toUpperCase();
-    if (INVITE_ONLY && !db.invites.some(i => i.code === code && !i.usedBy && !i.revoked))
-      return json(res, 403, { error: 'a valid invite code is required' });
-    const uid = crypto.randomBytes(12).toString('base64url');
-    const options = await generateRegistrationOptions({
-      rpName: RP_NAME, rpID: rpFor(req).rpID,
-      userID: Buffer.from(uid), userName: name, userDisplayName: name,
-      attestationType: 'none',
-      authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
-      excludeCredentials: []
-    });
-    const cid = putChallenge({ challenge: options.challenge, name, uid, code });
-    json(res, 200, { cid, options });
-  },
-
-  'POST /api/register/verify': async (req, res) => {
-    const body = await readBody(req);
-    const c = takeChallenge(body.cid);
-    if (!c || !c.uid) return json(res, 400, { error: 'challenge expired — try again' });
-    let verification;
-    try {
-      verification = await verifyRegistrationResponse({
-        response: body.credential,
-        expectedChallenge: c.challenge,
-        expectedOrigin: rpFor(req).origin,
-        expectedRPID: rpFor(req).rpID,
-        requireUserVerification: false
-      });
-    } catch (e) { return json(res, 400, { error: 'verification failed: ' + e.message }); }
-    if (!verification.verified) return json(res, 400, { error: 'not verified' });
-    const { credential } = verification.registrationInfo;
-    if (db.creds.find(x => x.id === credential.id)) return json(res, 409, { error: 'credential already registered' });
-    // Re-check the invite at the last moment (it may have been used/revoked since options), then burn it.
-    let invite = null;
-    if (INVITE_ONLY) {
-      invite = db.invites.find(i => i.code === c.code && !i.usedBy && !i.revoked);
-      if (!invite) return json(res, 403, { error: 'invite code is no longer valid — ask for a new one' });
-    }
-    const user = { id: c.uid, name: c.name, created: new Date().toISOString() };
-    if (invite) { user.invitedBy = invite.code; invite.usedBy = user.id; invite.usedAt = user.created; }
+    if (db.users.some(u => !u.disabled && u.name.toLowerCase() === name.toLowerCase()))
+      return json(res, 409, { error: 'a profile with that name already exists' });
+    const user = { id: crypto.randomBytes(12).toString('base64url'), name, created: new Date().toISOString() };
     db.users.push(user);
-    db.creds.push({
-      id: credential.id, userId: user.id,
-      publicKey: Buffer.from(credential.publicKey).toString('base64url'),
-      counter: credential.counter || 0,
-      transports: body.credential?.response?.transports || []
-    });
     saveDb();
-    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user), teamId: user.teamId || null } }, { 'Set-Cookie': sessionCookie(user, req) });
-  },
-
-  'POST /api/login/options': async (req, res) => {
-    const options = await generateAuthenticationOptions({
-      rpID: rpFor(req).rpID, userVerification: 'preferred', allowCredentials: []
-    });
-    const cid = putChallenge({ challenge: options.challenge });
-    json(res, 200, { cid, options });
-  },
-
-  'POST /api/login/verify': async (req, res) => {
-    const body = await readBody(req);
-    const c = takeChallenge(body.cid);
-    if (!c) return json(res, 400, { error: 'challenge expired — try again' });
-    const cred = db.creds.find(x => x.id === body.credential?.id);
-    if (!cred) return json(res, 404, { error: 'unknown passkey — create a profile first' });
-    let verification;
-    try {
-      verification = await verifyAuthenticationResponse({
-        response: body.credential,
-        expectedChallenge: c.challenge,
-        expectedOrigin: rpFor(req).origin,
-        expectedRPID: rpFor(req).rpID,
-        requireUserVerification: false,
-        credential: {
-          id: cred.id,
-          publicKey: b64uToBuf(cred.publicKey),
-          counter: cred.counter,
-          transports: cred.transports
-        }
-      });
-    } catch (e) { return json(res, 400, { error: 'verification failed: ' + e.message }); }
-    if (!verification.verified) return json(res, 400, { error: 'not verified' });
-    cred.counter = verification.authenticationInfo.newCounter;
-    saveDb();
-    const user = db.users.find(u => u.id === cred.userId);
-    if (!user) return json(res, 500, { error: 'user missing' });
-    if (user.disabled) return json(res, 403, { error: 'this account has been disabled' });
-    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user), teamId: user.teamId || null } }, { 'Set-Cookie': sessionCookie(user, req) });
+    // A profile created from inside does NOT sign the creator out of their own: they set it up
+    // and hand the phone over, and whoever takes it signs in from the picker. Only the
+    // bootstrap case takes the session, because there was nobody signed in to displace.
+    const headers = signedIn ? undefined : { 'Set-Cookie': sessionCookie(user, req) };
+    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user) } }, headers);
   },
 
   'POST /api/logout': async (req, res) => json(res, 200, { ok: true }, { 'Set-Cookie': clearCookieFor(req) }),
@@ -452,7 +427,7 @@ export const routes = {
   // "Sign out everywhere" — bumps this user's session version, which invalidates every cookie
   // ever issued for the account, on every device, including a copy someone else walked off with.
   // The caller's own cookie is cleared here too, so the browser doing it doesn't sit on a token
-  // it no longer accepts. Passkeys are untouched: signing back in works immediately.
+  // it no longer accepts. Signing back in with the password works immediately.
   'POST /api/logout/all': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
@@ -553,7 +528,7 @@ export const routes = {
       const last = workouts[workouts.length - 1];
       return {
         id: u.id, name: u.name, created: u.created || null,
-        disabled: !!u.disabled, admin: isAdmin(u), invitedBy: u.invitedBy || null,
+        disabled: !!u.disabled, admin: isAdmin(u),
         workouts: workouts.length,
         lastWorkout: last ? last.d : null,
         lastSync: S._ts || null,
@@ -561,7 +536,7 @@ export const routes = {
         live: livePresence(u.id)
       };
     }));
-    json(res, 200, { users, invite_only: INVITE_ONLY, now: Date.now() });
+    json(res, 200, { users, now: Date.now() });
   },
 
   // Drill-down: full workout history + body-weight log for one user.
@@ -572,7 +547,7 @@ export const routes = {
     if (!u) return json(res, 404, { error: 'no such user' });
     const S = (await readState(u.id)) || {};
     json(res, 200, {
-      user: { id: u.id, name: u.name, created: u.created || null, disabled: !!u.disabled, admin: isAdmin(u), invitedBy: u.invitedBy || null },
+      user: { id: u.id, name: u.name, created: u.created || null, disabled: !!u.disabled, admin: isAdmin(u) },
       unit: S.unit || 'kg',
       lastSync: S._ts || null,
       routines: (S.routines || []).map(r => ({ id: r.id, name: r.name, emoji: r.emoji, count: (r.ex || []).length })),
@@ -591,41 +566,6 @@ export const routes = {
     if (u.disabled) presence.delete(u.id);   // drop them off "training now" at once
     saveDb();
     json(res, 200, { ok: true, id: u.id, disabled: u.disabled });
-  },
-
-  'GET /api/admin/invites': async (req, res) => {
-    if (!requireAdmin(req, res)) return;
-    // resolve usedBy uid → name for display
-    const invites = db.invites.map(i => ({
-      ...i, usedByName: i.usedBy ? (db.users.find(u => u.id === i.usedBy) || {}).name || null : null
-    }));
-    json(res, 200, { invites, invite_only: INVITE_ONLY });
-  },
-
-  'POST /api/admin/invites/new': async (req, res) => {
-    const admin = requireAdmin(req, res); if (!admin) return;
-    const body = await readBody(req);
-    let code;
-    // 16 hex chars = 64 bits, up from 8 chars / 32 bits. The app has no rate limiting by design
-    // (that's the reverse proxy's job) and /api/register/options tells a caller whether a code is
-    // good, so the code itself has to be the thing that isn't worth guessing. Codes already in
-    // db.json keep working — validation is an exact string compare, never a length or format check.
-    do { code = crypto.randomBytes(8).toString('hex').toUpperCase(); } while (db.invites.some(i => i.code === code));
-    const invite = { code, note: String(body.note || '').slice(0, 60), createdBy: admin.id, created: new Date().toISOString() };
-    db.invites.push(invite);
-    saveDb();
-    json(res, 200, { invite });
-  },
-
-  'POST /api/admin/invites/revoke': async (req, res) => {
-    if (!requireAdmin(req, res)) return;
-    const body = await readBody(req);
-    const inv = db.invites.find(i => i.code === String(body.code || '').toUpperCase());
-    if (!inv) return json(res, 404, { error: 'no such code' });
-    if (inv.usedBy) return json(res, 400, { error: 'already used — cannot revoke' });
-    db.invites = db.invites.filter(i => i.code !== inv.code);
-    saveDb();
-    json(res, 200, { ok: true });
   },
 
   /* ---------- AI Coach ---------- */
@@ -679,6 +619,6 @@ export async function dispatch(req, res) {
 // imported for its routes and nothing else, and binding a socket there would be an error.
 // Exported so a test can shut it down; undefined when something else owns the socket.
 export const server = SERVERLESS ? null
-  : http.createServer(dispatch).listen(PORT, () => console.log(`gym-api on :${PORT} (rpID=${RP_ID}, origin=${ORIGIN})`));
+  : http.createServer(dispatch).listen(PORT, () => console.log(`gym-api on :${PORT} (origin=${ORIGIN})`));
 
 export { reloadDb, flushDb, json };

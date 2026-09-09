@@ -1,9 +1,9 @@
 // Team backend calls + the polling hook the Team screen and the Home card share.
 //
-// A team is a thin server-side thing: membership, published schemes, and a summary of every
-// member's training derived from their own state. Nothing here is cached into the local
-// state blob — the team is other people's data, and stale copies of it in localStorage would
-// outlive membership.
+// There is one team and everyone on the instance is in it, so there is nothing to join or
+// leave — only published schemes and a summary of every member's training, derived from their
+// own state. Nothing here is cached into the local state blob: the team is other people's
+// data, and a stale copy in localStorage would outlive the profile it came from.
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api.js'
 import { DEMO } from './demo.js'
@@ -13,9 +13,6 @@ import { MOBILE } from './mobile.js'
 export const teamsAvailable = user => !!user && !DEMO && !MOBILE
 
 export const getTeam = () => api('/api/team')
-export const createTeam = name => api('/api/team/create', { method: 'POST', body: JSON.stringify({ name }) })
-export const joinTeam = code => api('/api/team/join', { method: 'POST', body: JSON.stringify({ code }) })
-export const leaveTeam = () => api('/api/team/leave', { method: 'POST', body: '{}' })
 export const renameTeam = name => api('/api/team/rename', { method: 'POST', body: JSON.stringify({ name }) })
 export const getFeed = (limit = 60) => api('/api/team/feed?limit=' + limit)
 export const getMember = id => api('/api/team/member?id=' + encodeURIComponent(id))

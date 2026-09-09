@@ -8,7 +8,7 @@ import { sampleState } from './helpers.mjs';
 
 /* ---------------- harness ---------------- */
 function harness() {
-  const db = { users: [], creds: [], subs: [], invites: [], teams: [] };
+  const db = { users: [], subs: [], team: null };
   const states = new Map();
   let saves = 0;
   const ctx = {
@@ -37,71 +37,68 @@ function harness() {
 
 const iso = n => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 
-/* ---------------- membership ---------------- */
+/* ---------------- everyone is in ---------------- */
 
-test('a profile with no team is asked to make one, not handed an error', async () => {
+test('a signed-in profile is already in the team — nothing to join', async () => {
   const h = harness(); const u = h.add('u1', 'Ann');
   const res = await h.as(u).call('GET /api/team');
   assert.equal(res.code, 200);
-  assert.equal(res.body.team, null);
-});
-
-test('creating a team puts you in it as the founder, with a code to hand out', async () => {
-  const h = harness(); const u = h.add('u1', 'Ann');
-  const res = await h.as(u).call('POST /api/team/create', { name: 'Iron Club' });
-  assert.equal(res.code, 200);
-  assert.equal(res.body.team.name, 'Iron Club');
-  assert.match(res.body.team.code, /^[A-Z0-9]{6}$/);
   assert.equal(res.body.team.members.length, 1);
-  assert.equal(res.body.team.members[0].founder, true);
-  assert.equal(u.teamId, res.body.team.id);
+  assert.equal(res.body.team.members[0].name, 'Ann');
+  assert.equal(res.body.team.members[0].you, true);
 });
 
-test('a join code is read off a phone screen, so it is matched loosely', async () => {
-  const h = harness(); const a = h.add('u1', 'Ann'); const b = h.add('u2', 'Ben');
-  const { body } = await h.as(a).call('POST /api/team/create', { name: 'Iron Club' });
-  const code = body.team.code;
-  const res = await h.as(b).call('POST /api/team/join', { code: ' ' + code.toLowerCase().slice(0, 3) + '-' + code.slice(3) + ' ' });
-  assert.equal(res.code, 200, JSON.stringify(res.body));
-  assert.deepEqual(res.body.team.members.map(m => m.name).sort(), ['Ann', 'Ben']);
+test('creating a profile is joining: everyone on the instance shows up', async () => {
+  const h = harness();
+  const a = h.add('u1', 'Ann'); h.add('u2', 'Ben'); h.add('u3', 'Cat');
+  const res = await h.as(a).call('GET /api/team');
+  assert.deepEqual(res.body.team.members.map(m => m.name).sort(), ['Ann', 'Ben', 'Cat']);
 });
 
-test('a wrong code joins nothing', async () => {
+test('a disabled profile drops out of the team without being removed from anything', async () => {
+  const h = harness();
+  const a = h.add('u1', 'Ann'); const b = h.add('u2', 'Ben');
+  b.disabled = true;
+  const res = await h.as(a).call('GET /api/team');
+  assert.deepEqual(res.body.team.members.map(m => m.name), ['Ann']);
+  assert.equal(h.db.users.length, 2, 'the profile itself is untouched');
+});
+
+test('there are no join codes to leak, and no way to join or leave', async () => {
   const h = harness(); const a = h.add('u1', 'Ann');
-  const res = await h.as(a).call('POST /api/team/join', { code: 'ZZZZZZ' });
-  assert.equal(res.code, 404);
-  assert.equal(a.teamId, undefined);
-});
-
-test('joining a second team leaves the first — a profile is in one team', async () => {
-  const h = harness(); const a = h.add('u1', 'Ann'); const b = h.add('u2', 'Ben');
-  const one = (await h.as(a).call('POST /api/team/create', { name: 'One' })).body.team;
-  const two = (await h.as(b).call('POST /api/team/create', { name: 'Two' })).body.team;
-  await h.as(a).call('POST /api/team/join', { code: two.code });
-  assert.equal(a.teamId, two.id);
-  assert.equal(h.db.teams.find(t => t.id === one.id), undefined, 'the emptied team is not left holding its code');
-});
-
-test('the last member leaving disbands the team; others leaving does not', async () => {
-  const h = harness(); const a = h.add('u1', 'Ann'); const b = h.add('u2', 'Ben');
-  const t = (await h.as(a).call('POST /api/team/create', { name: 'Iron' })).body.team;
-  await h.as(b).call('POST /api/team/join', { code: t.code });
-  await h.as(b).call('POST /api/team/leave');
-  assert.equal(h.db.teams.length, 1);
-  assert.equal(b.teamId, undefined);
-  await h.as(a).call('POST /api/team/leave');
-  assert.equal(h.db.teams.length, 0);
-});
-
-test('team endpoints are closed to anyone not in the team', async () => {
-  const h = harness(); const a = h.add('u1', 'Ann'); const out = h.add('u9', 'Zoe');
-  await h.as(a).call('POST /api/team/create', { name: 'Iron' });
-  for (const route of ['GET /api/team/feed', 'POST /api/team/plans', 'GET /api/team/member']) {
-    const res = await h.as(out).call(route, { bundle: { routines: [] } });
-    assert.equal(res.code, 404, route + ' must not serve a non-member');
+  const res = await h.as(a).call('GET /api/team');
+  assert.equal('code' in res.body.team, false);
+  for (const gone of ['POST /api/team/create', 'POST /api/team/join', 'POST /api/team/leave']) {
+    assert.equal(h.routes[gone], undefined, gone + ' should no longer exist');
   }
-  const anon = await h.as(null).call('GET /api/team');
-  assert.equal(anon.code, 401);
+});
+
+test('the team can be renamed by anyone in it', async () => {
+  const h = harness(); const a = h.add('u1', 'Ann'); const b = h.add('u2', 'Ben');
+  await h.as(a).call('POST /api/team/rename', { name: 'Iron Club' });
+  assert.equal((await h.as(b).call('GET /api/team')).body.team.name, 'Iron Club');
+  assert.equal((await h.as(b).call('POST /api/team/rename', {})).code, 400);
+});
+
+test('an older instance keeps the schemes published under the code-based model', async () => {
+  const h = harness();
+  const a = h.add('u1', 'Ann');
+  a.teamId = 'old';
+  h.db.teams = [{ id: 'old', name: 'Iron Club', code: 'ABC123', createdAt: 5,
+                  members: ['u1'], plans: [{ id: 'p1', name: 'PPL', bundle: { routines: [{ id: 'r1' }] } }] }];
+  const res = await h.as(a).call('GET /api/team');
+  assert.equal(res.body.team.name, 'Iron Club', 'the name carries over');
+  assert.deepEqual(res.body.team.plans.map(p => p.name), ['PPL'], 'and so do the plans');
+  assert.equal(h.db.teams, undefined, 'the old shape is cleaned up');
+  assert.equal(a.teamId, undefined, 'membership is no longer stored on the user');
+});
+
+test('every team route needs a session', async () => {
+  const h = harness(); h.add('u1', 'Ann');
+  for (const route of ['GET /api/team', 'GET /api/team/feed', 'POST /api/team/plans', 'GET /api/team/member']) {
+    const res = await h.as(null).call(route, { bundle: { routines: [] } });
+    assert.equal(res.code, 401, route + ' must refuse an anonymous caller');
+  }
 });
 
 /* ---------------- shared progress ---------------- */
@@ -115,8 +112,6 @@ test("every member's training is summarized from their own state, never copied i
     ]
   }));
   const b = h.add('u2', 'Ben', sampleState({ unit: 'lb', workouts: [], bodyweight: [{ d: iso(1), w: 180 }] }));
-  const t = (await h.as(a).call('POST /api/team/create', { name: 'Iron' })).body.team;
-  await h.as(b).call('POST /api/team/join', { code: t.code });
 
   const res = await h.as(a).call('GET /api/team');
   const ann = res.body.team.members.find(m => m.name === 'Ann');
@@ -131,8 +126,8 @@ test("every member's training is summarized from their own state, never copied i
   assert.equal(ben.unit, 'lb', "a member's numbers carry the unit they were logged in");
   assert.equal(ben.workouts, 0);
   assert.deepEqual(ben.bw, { d: iso(1), w: 180 });
-  // No team record holds anyone's sessions.
-  assert.equal(JSON.stringify(h.db.teams).includes('"w1"'), false);
+  // The team record holds nobody's sessions — progress is read from each profile's own state.
+  assert.equal(JSON.stringify(h.db.team).includes('"w1"'), false);
 });
 
 test('"last trained" is the newest session, not the last one in the array', async () => {
@@ -142,7 +137,6 @@ test('"last trained" is the newest session, not the last one in the array', asyn
     { id: 'new', d: iso(1), vol: 100, entries: [] },
     { id: 'old', d: iso(90), vol: 100, entries: [] }
   ] }));
-  await h.as(a).call('POST /api/team/create', { name: 'Iron' });
   const { body } = await h.as(a).call('GET /api/team');
   assert.equal(body.team.members[0].last, iso(1));
 
@@ -158,8 +152,6 @@ test('the feed interleaves the whole team, newest first, and names who trained',
   const b = h.add('u2', 'Ben', sampleState({ workouts: [
     { id: 'b1', d: iso(1), name: 'Pull', vol: 800, prs: ['0002'], start: 0, end: 40 * 60000, entries: [{ id: '2', sets: [{ done: true }] }] }
   ] }));
-  const t = (await h.as(a).call('POST /api/team/create', { name: 'Iron' })).body.team;
-  await h.as(b).call('POST /api/team/join', { code: t.code });
 
   const { body } = await h.as(a).call('GET /api/team/feed');
   assert.deepEqual(body.feed.map(f => f.who), ['Ben', 'Ann']);
@@ -173,8 +165,6 @@ test("a member page carries training and nothing else — no settings, no push, 
   const h = harness();
   const a = h.add('u1', 'Ann', sampleState());
   const b = h.add('u2', 'Ben', sampleState({ coach: { consent: { agreedAt: 'x' } }, reminder: { on: true } }));
-  const t = (await h.as(a).call('POST /api/team/create', { name: 'Iron' })).body.team;
-  await h.as(b).call('POST /api/team/join', { code: t.code });
   const { body } = await h.as(a).call('GET /api/team/member', null, 'id=u2');
   assert.equal(body.member.name, 'Ben');
   assert.equal(body.member.history.length, 1);
@@ -189,7 +179,6 @@ const bundle = () => ({ opengym_plan: 1, name: 'PPL', week: { 1: 'r1', 3: 'r1' }
 test('publishing a scheme shares the plan and only the plan', async () => {
   const h = harness();
   const a = h.add('u1', 'Ann', sampleState());
-  const t = (await h.as(a).call('POST /api/team/create', { name: 'Iron' })).body.team;
   const res = await h.as(a).call('POST /api/team/plans', { name: 'PPL 3-day', note: 'start light', bundle: bundle() });
   assert.equal(res.code, 200);
   const [p] = res.body.team.plans;
@@ -204,15 +193,12 @@ test('publishing a scheme shares the plan and only the plan', async () => {
 
 test('a scheme without routines is refused', async () => {
   const h = harness(); const a = h.add('u1', 'Ann');
-  await h.as(a).call('POST /api/team/create', { name: 'Iron' });
   assert.equal((await h.as(a).call('POST /api/team/plans', { name: 'x' })).code, 400);
 });
 
 test('any member can revise a shared scheme in place, keeping its id', async () => {
   const h = harness();
   const a = h.add('u1', 'Ann'); const b = h.add('u2', 'Ben');
-  const t = (await h.as(a).call('POST /api/team/create', { name: 'Iron' })).body.team;
-  await h.as(b).call('POST /api/team/join', { code: t.code });
   const p = (await h.as(a).call('POST /api/team/plans', { name: 'PPL', bundle: bundle() })).body.team.plans[0];
 
   const next = bundle(); next.routines.push({ id: 'r2', name: 'Legs', ex: [] });
@@ -228,7 +214,6 @@ test('any member can revise a shared scheme in place, keeping its id', async () 
 
 test('removing a scheme takes only that one', async () => {
   const h = harness(); const a = h.add('u1', 'Ann');
-  await h.as(a).call('POST /api/team/create', { name: 'Iron' });
   const one = (await h.as(a).call('POST /api/team/plans', { name: 'A', bundle: bundle() })).body.team.plans[0];
   await h.as(a).call('POST /api/team/plans', { name: 'B', bundle: bundle() });
   const res = await h.as(a).call('POST /api/team/plans/remove', { id: one.id });
