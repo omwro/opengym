@@ -1,10 +1,14 @@
-/* A long-lived server against a remote store.
+/* A long-lived server against a remote store, which is not the single-writer situation the
+ * original design assumed: a laptop pointed at the deployment's database is a second writer
+ * exactly like another instance is.
  *
- * saveDb() is called synchronously from route handlers and its promise is not returned to
- * them. Under SERVERLESS the entry point awaits it via flushDb() and replays on conflict; in a
- * long-lived server nothing awaits it, so a refused write is an unhandled rejection — which,
- * under Node's default, ends the process. A gym app that dies because two writers touched the
- * same database is worse than one that logs and resyncs.
+ * Two failures are covered here, both seen for real.
+ *
+ * 1. A refused write used to be an unhandled rejection, which under Node's default ends the
+ *    process.
+ * 2. Worse, the route had already answered 200 from its in-memory copy, so the caller was told
+ *    their plan was published when the write behind it was then thrown away. `serve` exists to
+ *    close that: it commits before replying, and replays the request on a stale version.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -61,31 +65,41 @@ const cookie = (() => {
 
 test.after(() => { kv.close(); api.server?.close(); });
 
+test('a refused write is replayed rather than answered with a false success', async () => {
+  // The request lands on a version that has already moved. Without the replay in `serve` this
+  // answers 200 and the rename is silently dropped.
+  refuseNextCas = true;
+  const out = { code: 0, body: '' };
+  const res = {
+    headersSent: false,
+    writeHead(c, h) { out.code = c; out.headers = h; },
+    end(b) { out.body = b ? JSON.parse(b) : null; }
+  };
+  await api.serve({ method: 'POST', url: '/api/team/rename', headers: { cookie }, body: { name: 'Replayed' } }, res);
+
+  assert.equal(out.code, 200, 'the replay succeeds');
+  assert.equal(out.body.team.name, 'Replayed');
+  // And the claim is true: the store really holds it.
+  assert.equal(table.get('db').value.team?.name, 'Replayed',
+    'a 200 must mean the write landed, not that it was attempted');
+});
+
 test('the long-lived server runs against a remote store', () => {
   assert.equal(api.SERVERLESS, false, 'not the serverless path');
   assert.ok(api.routes['GET /api/health'], 'and it built its routes');
 });
 
-test('a refused write is logged and resynced, not left to crash the process', async () => {
-  // Reach saveDb the way a route does: a team rename goes through it.
-  const before = console.error;
-  const logged = [];
-  console.error = (...a) => logged.push(a.join(' '));
-  try {
-    refuseNextCas = true;
-    // Somebody else moved the row on, so this instance's version is stale.
-    table.set('db', { value: table.get('db').value, version: 99 });
+test('a refused write never becomes an unhandled rejection', async () => {
+  // saveDb() hands its promise to nobody, so before `serve` awaits it there is a window where
+  // a rejection would be unhandled — and under Node's default that ends the process. Calling a
+  // route directly is the bluntest way to exercise that window.
+  refuseNextCas = true;
+  table.set('db', { value: table.get('db').value, version: 99 });   // this instance is now stale
 
-    let status = 0;
-    const res = { writeHead(c) { status = c; }, end() {}, headersSent: false };
-    await api.routes['POST /api/team/rename'](
-      { method: 'POST', url: '/api/team/rename', headers: { cookie }, body: { name: 'Iron' } }, res);
-    assert.equal(status, 200, 'the request itself succeeded — it is the write behind it that was refused');
-
-    // Give the fire-and-forget chain time to reject and be handled.
-    await new Promise(r => setTimeout(r, 200));
-  } finally { console.error = before; }
+  const res = { writeHead() {}, end() {}, headersSent: false };
+  await api.routes['POST /api/team/rename'](
+    { method: 'POST', url: '/api/team/rename', headers: { cookie }, body: { name: 'Whatever' } }, res);
+  await new Promise(r => setTimeout(r, 200));
 
   assert.deepEqual(unhandled, [], 'an unhandled rejection here ends the process under Node\'s default');
-  assert.ok(logged.some(l => /another writer/.test(l)), 'and it says why, rather than failing silently: ' + JSON.stringify(logged));
 });

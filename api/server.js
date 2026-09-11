@@ -101,20 +101,12 @@ function saveDb() {
   if (BACKEND === 'fs') { store.saveDb(db, dbVersion); return; }
   const chain = (dbWrite || Promise.resolve()).then(() => store.saveDb(db, dbVersion)).then(v => { dbVersion = v; });
   dbWrite = chain;
-  // Callers of saveDb() are synchronous and never see this promise. Under SERVERLESS that is
-  // fine — flushDb() awaits it and the entry point replays the request. In a long-lived server
-  // nothing awaits it at all, so a refused write would surface as an unhandled rejection and,
-  // under Node's default, kill the process. Recover instead: resync from the store so this
-  // instance stops working from a version that has moved on.
-  //
-  // Being refused at all means something else is writing the same database. One long-lived
-  // server owning it never conflicts; two writers (a local server pointed at the deployment's
-  // database, say) is the case this catches, and the log line says so.
-  chain.catch(async err => {
-    if (SERVERLESS) return;             // flushDb() is the handler there, and it retries properly
-    console.error('db write refused — another writer has this database. Resyncing.', err.message);
-    try { await reloadDb(); } catch (e) { console.error('resync failed', e.message); }
-  });
+  // Callers of saveDb() are synchronous and never see this promise; `serve` awaits it through
+  // flushDb() and replays the request when the store refuses the write. This handler exists
+  // only so the rejection is never *unhandled* in the window before that await — it must not
+  // try to recover on its own. An earlier version resynced here, which raced the replay
+  // already in progress and wrote back the state it had just reloaded over.
+  chain.catch(() => {});
 }
 /** Settle any pending db write. Throws ConflictError if another request got there first. */
 async function flushDb() { const p = dbWrite; dbWrite = null; if (p) await p; }
@@ -615,10 +607,74 @@ export async function dispatch(req, res) {
   }
 }
 
+/* ---------- commit cycle (remote stores only) ---------- */
+// `db` is one document, and with a remote store this process is not its only writer: another
+// instance, a serverless function, or a laptop pointed at the same database can all move it.
+// A request therefore has to reload, run, and commit against the version it read — and replay
+// if that version moved underneath it.
+//
+// Without this the failure is silent and nasty: the route answers 200 from its in-memory copy
+// and the write behind it is refused afterwards, so the caller is told their plan was
+// published when it was not. That happened, which is why this exists.
+//
+// The fs backend needs none of it — one process, synchronous writes, no second writer — and
+// skips straight to dispatch.
+const MAX_ATTEMPTS = 5;
+
+// One request at a time in this process: `db` is module state, so overlapping requests would
+// read over each other's view even before any store is involved.
+let queue = Promise.resolve();
+function exclusive(fn) {
+  const run = queue.then(fn, fn);
+  queue = run.then(() => {}, () => {});
+  return run;
+}
+
+/** A minimal ServerResponse stand-in, so a replayed request does not emit a half-sent reply. */
+function capture() {
+  const out = { status: 200, headers: {}, body: '', sent: false };
+  return {
+    out,
+    res: {
+      get headersSent() { return out.sent; },
+      writeHead(code, headers) { out.status = code; Object.assign(out.headers, headers || {}); out.sent = true; },
+      end(body) { out.body = body ?? ''; }
+    }
+  };
+}
+
+/**
+ * Run one request to a durable conclusion. Both entry points go through this: the socket
+ * server below, and the serverless handler in index.js.
+ */
+export async function serve(req, res) {
+  if (BACKEND === 'fs') return dispatch(req, res);
+
+  const done = await exclusive(async () => {
+    for (let attempt = 1; ; attempt++) {
+      await reloadDb();
+      const cap = capture();
+      await dispatch(req, cap.res);
+      try {
+        await flushDb();
+      } catch (e) {
+        if (e.name === 'ConflictError' && attempt < MAX_ATTEMPTS) continue;   // replay on fresh data
+        console.error('commit failed', req.method, req.url, e);
+        return { status: 503, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+                 body: '{"error":"busy — please try again"}' };
+      }
+      return cap.out;
+    }
+  });
+
+  res.writeHead(done.status, done.headers);
+  res.end(done.body);
+}
+
 // Only the long-lived deployment listens on a port. Under a serverless host this module is
 // imported for its routes and nothing else, and binding a socket there would be an error.
 // Exported so a test can shut it down; undefined when something else owns the socket.
 export const server = SERVERLESS ? null
-  : http.createServer(dispatch).listen(PORT, () => console.log(`gym-api on :${PORT} (origin=${ORIGIN})`));
+  : http.createServer(serve).listen(PORT, () => console.log(`gym-api on :${PORT} (origin=${ORIGIN})`));
 
 export { reloadDb, flushDb, json };
