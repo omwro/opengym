@@ -10,7 +10,7 @@ import { beep, vibrate } from '../lib/sound.js'
 import { t } from '../lib/i18n.js'
 import { api } from '../lib/api.js'
 import Media from '../components/Media.jsx'
-import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, finishWorkout, workoutCompleteSheet, confirmSheet } from '../sheets.jsx'
+import { startFlow, freestylePicker, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, finishWorkout, workoutCompleteSheet, confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { Thumb } from '../components/Media.jsx'
@@ -42,6 +42,7 @@ function StartChooser() {
         <span className="tag acc">{t('Start')}</span></div>)}</div></>}
     <div style={{ height: 14 }} />
     <Button icon="shuffle" onClick={() => startFlow(null)}>{t('Freestyle workout (pick as you go)')}</Button>
+    <div className="dim small" style={{ marginTop: 6, textAlign: 'center' }}>{t('Starts empty — add each exercise when you get to it.')}</div>
     {!S.routines.length && <><div style={{ height: 10 }} /><Button variant="primary" onClick={() => nav('/plan')}>{t('Build a plan first')}</Button></>}
   </div>
 }
@@ -247,6 +248,24 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
   </>
 }
 
+/* ---------- freestyle session so far ----------
+   A freestyle workout has no plan to look ahead to, so the useful list is the one behind you:
+   what you have done, how far each got, one tap to go back to it. An exercise you added by
+   mistake (nothing ticked yet) can be taken out again. */
+function SessionList({ entries, cur, onJump, onRemove }) {
+  return <div className="list" style={{ marginBottom: 12 }}>
+    {entries.map((e, i) => {
+      const done = e.sets.filter(x => x.done).length
+      const all = done === e.sets.length
+      return <div key={i} className="item" onClick={() => onJump(i)} style={i === cur ? { borderColor: 'var(--acc)' } : null}>
+        <span className="lrow-i" style={{ background: all ? 'var(--acc)' : 'var(--surface-3)' }}><Icon name={all ? 'check' : 'dumbbell'} /></span>
+        <div className="grow"><div className="tt capitalize">{exOr(e.id).n}</div><div className="ss">{t('{0} sets', done + '/' + e.sets.length)}</div></div>
+        {!done && <button className="iconbtn" aria-label={t('Remove')} onClick={ev => { ev.stopPropagation(); onRemove(i) }}><Icon name="xmark" /></button>}
+      </div>
+    })}
+  </div>
+}
+
 /* ---------- active workout ---------- */
 function ActiveWorkout() {
   const nav = useNavigate()
@@ -262,6 +281,14 @@ function ActiveWorkout() {
 
   const total = A.entries.reduce((n, e) => n + e.sets.length, 0)
   const done = setsDoneActive(A)
+  // Freestyle = started empty, no routine behind it. Exercises are added one at a time as you
+  // get to them, so adding is the main action rather than an afterthought.
+  const freestyle = !A.routineId
+  const curDone = A.entries.length > 0 && unit.every(i => A.entries[i].sets.every(x => x.done))
+  const removeEntry = idx => update(s => {
+    s.active.entries.splice(idx, 1)
+    if (s.active.cur > idx) s.active.cur--
+  })
 
   const mutEntry = (idx, fn) => update(s => { fn(s.active.entries[idx]) }, true)
   // Clearing an optional field drops the key rather than storing null, so a set only carries
@@ -401,7 +428,8 @@ function ActiveWorkout() {
       ) : (
         <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swap(cur)} />
       )}
-    </> : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}</div>}
+    </> : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}
+      <div style={{ height: 14 }} /><Button variant="primary" icon="plus" onClick={freestylePicker}>{t('Add exercise')}</Button></div>}
 
     <div style={{ height: 12 }} />
     {/* Next is the button you actually press between exercises, so it gets two thirds of the
@@ -423,16 +451,25 @@ function ActiveWorkout() {
       </div>
     })()}
     <div style={{ height: 10 }} />
-    <Button onClick={() => exercisePicker(ex => exConfigSheet(ex, null, cfg => update(s => {
-      const full = { ...cfg, id: ex.id }
-      const plan = nextPrescription(s, full, s.routines.find(r => r.id === s.active.routineId))
-      s.active.entries.push({ id: ex.id, target: { ...cfg }, plan, sets: applyPrescription(buildSets(s, full), plan) })
-      s.active.cur = s.active.entries.length - 1
-    }), null, S.routines.find(r => r.id === A.routineId)))} icon="plus">{t('Add exercise')}</Button>
+    {freestyle
+      ? A.entries.length > 0 && <Button variant={curDone ? 'primary' : 'plain'} onClick={freestylePicker} icon="plus">{t('Add exercise')}</Button>
+      : <Button onClick={() => exercisePicker(ex => exConfigSheet(ex, null, cfg => update(s => {
+        const full = { ...cfg, id: ex.id }
+        const plan = nextPrescription(s, full, s.routines.find(r => r.id === s.active.routineId))
+        s.active.entries.push({ id: ex.id, target: { ...cfg }, plan, sets: applyPrescription(buildSets(s, full), plan) })
+        s.active.cur = s.active.entries.length - 1
+      }), null, S.routines.find(r => r.id === A.routineId)))} icon="plus">{t('Add exercise')}</Button>}
+    {freestyle && A.entries.length > 0 && <>
+      <h4 className="sec">{t('This session')}</h4>
+      <SessionList entries={A.entries} cur={cur} onJump={i => update(s => { s.active.cur = i })} onRemove={removeEntry} />
+    </>}
     <div style={{ height: 10 }} />
     {(() => {
       const exDone = A.entries.filter(e => e.sets.length && e.sets.every(s => s.done)).length
       const allDone = A.entries.length > 0 && exDone === A.entries.length
+      if (freestyle && !A.entries.length) return null
+      // A freestyle workout ends whenever you say so — there is no "early" without a plan.
+      if (freestyle) return <button className={done ? 'btn plain' : 'btn ghost dim'} onClick={finishWorkout}>{t('Finish workout')}</button>
       return <button className={allDone ? 'btn primary' : 'btn ghost dim'} onClick={finishWorkout}>
         {allDone ? t('Finish workout') : t('Finish workout early · {0} exercises', exDone + '/' + A.entries.length)}
       </button>

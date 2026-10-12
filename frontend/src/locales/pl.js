@@ -707,4 +707,16 @@ export default {
   '{0}: rep-range floor': '{0}: dolna granica zakresu powtórzeń',
   '{0}: reps': '{0}: powtórzenia',
   '{0}: sets': '{0}: serie',
+  // freestyle
+  'Starts empty — add each exercise when you get to it.': 'Zaczyna się pusty — dodawaj ćwiczenia, gdy do nich dojdziesz.',
+  'Start empty, add as you go': 'Zacznij pusty, dodawaj na bieżąco',
+  'This session': 'Ta sesja',
+  'Remove': 'Usuń',
+  'Exercise done!': 'Ćwiczenie zrobione!',
+  'What’s next? Add another exercise, or call it a day.': 'Co dalej? Dodaj kolejne ćwiczenie albo zakończ.',
+  'Add next exercise': 'Dodaj następne ćwiczenie',
+  'Freestyle {0}': 'Trening dowolny {0}',
+  'Saved as a routine — rename it in Plan': 'Zapisano jako rutynę — zmień nazwę w Planie',
+  'Edit the new routine': 'Edytuj nową rutynę',
+  'Save as routine': 'Zapisz jako rutynę',
 }

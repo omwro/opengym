@@ -707,4 +707,16 @@ export default {
   '{0}: rep-range floor': '{0}：次数区间下限',
   '{0}: reps': '{0}：次数',
   '{0}: sets': '{0}：组数',
+  // freestyle
+  'Starts empty — add each exercise when you get to it.': '从空白开始 — 练到哪个动作就添加哪个。',
+  'Start empty, add as you go': '空白开始，边练边加',
+  'This session': '本次训练',
+  'Remove': '移除',
+  'Exercise done!': '动作完成！',
+  'What’s next? Add another exercise, or call it a day.': '接下来？再添加一个动作，或者今天就到这里。',
+  'Add next exercise': '添加下一个动作',
+  'Freestyle {0}': '自由训练 {0}',
+  'Saved as a routine — rename it in Plan': '已保存为计划 — 可在计划中重命名',
+  'Edit the new routine': '编辑新计划',
+  'Save as routine': '保存为计划',
 }

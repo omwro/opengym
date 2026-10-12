@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Freestyle: start empty, fill it in as you go
+
+An empty "pick as you go" workout already existed, but it was hidden behind a planned day and
+every exercise you added asked for sets, reps and weight before you could lift.
+
+- 🔀 **One tap from Home.** A *Freestyle* row sits under today's session — start an empty
+  workout any day, planned or not.
+- ⚡ **Pick it, lift it.** In a freestyle session an exercise goes straight in with what you did
+  last time (sets you actually finished, reps, weight, timed or cardio), or a plain 3 × 10 if
+  it is new. Everything is still editable in the set rows.
+- 📋 **The session so far.** A list of what you have done, how far each got, tap to jump back,
+  and an × to take out an exercise you added by mistake (only while nothing is ticked).
+- ➕ **"Exercise done" leads to the next one.** Finishing an exercise in freestyle offers
+  *Add next exercise* instead of announcing the whole workout is over.
+- 💾 **Save as routine.** Liked what you made up? The finish screen turns it into a routine —
+  the exercises in order, with the sets, reps and heaviest weight you did.
+
 ### The AI Coach
 
 openGym could always progress a plan. It could never *write* one, and it never looked at the

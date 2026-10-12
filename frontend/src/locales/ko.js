@@ -707,4 +707,16 @@ export default {
   '{0}: rep-range floor': '{0}: 횟수 범위 하한',
   '{0}: reps': '{0}: 횟수',
   '{0}: sets': '{0}: 세트',
+  // freestyle
+  'Starts empty — add each exercise when you get to it.': '빈 상태로 시작 — 차례가 되면 운동을 하나씩 추가하세요.',
+  'Start empty, add as you go': '빈 상태로 시작, 하면서 추가',
+  'This session': '이번 세션',
+  'Remove': '삭제',
+  'Exercise done!': '운동 완료!',
+  'What’s next? Add another exercise, or call it a day.': '다음은? 운동을 하나 더 추가하거나 오늘은 마무리하세요.',
+  'Add next exercise': '다음 운동 추가',
+  'Freestyle {0}': '자유 운동 {0}',
+  'Saved as a routine — rename it in Plan': '루틴으로 저장됨 — 플랜에서 이름을 바꾸세요',
+  'Edit the new routine': '새 루틴 편집',
+  'Save as routine': '루틴으로 저장',
 }
