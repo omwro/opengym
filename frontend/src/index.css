@@ -263,6 +263,10 @@ h4.sec{
 .btn.ghost,.btn.plain{background:none;color:var(--acc);font-weight:400}
 .btn.ghost:active,.btn.plain:active{background:var(--surface-2)}
 .btn.sm{padding:8px 14px;width:auto;font-size:15px;border-radius:var(--r-sm);gap:5px}
+/* "Next" names where it goes: label on top, the exercise underneath, chevron at the edge */
+.btn.nextbtn{justify-content:space-between;padding:9px 14px;font-size:16px;line-height:1.25}
+.btn.nextbtn .lbl2{color:inherit;opacity:.75;font-size:12px;font-weight:500}
+.btn:disabled{opacity:.4}
 .btn.sm .icn{font-size:16px}
 .btn.xs{padding:5px 10px;width:auto;font-size:13px;border-radius:7px;gap:4px}
 .btn:disabled{opacity:.32;pointer-events:none}
@@ -548,7 +552,7 @@ h4.sec{
 }
 .sethead .n-sp{width:24px;flex:none}
 .sethead .w-sp{flex:1.4;text-align:center}
-.sethead .r-sp{flex:1;text-align:center}
+.sethead .r-sp{flex:1.1;min-width:84px;text-align:center}
 .sethead .eff-sp{text-align:center}
 .sethead .ck-sp{width:30px;flex:none}
 .setrow{display:flex;align-items:center;gap:8px;padding:7px 0;position:relative}
@@ -563,7 +567,15 @@ h4.sec{
 .setrow .stp.w{flex:1.4;min-width:0}
 .setrow .stp.r{flex:1;min-width:0}
 .setrow .stp.eff{flex:1.1;min-width:0}
-.setrow .stp button{width:32px;height:40px}
+.setrow .stp button{width:30px;height:42px}
+.setrow .stp .num{font-variant-numeric:tabular-nums;font-size:18px;font-weight:600}
+.setrow .stp.r{flex:1.1;min-width:84px}
+@media (max-width:400px){
+  .setrow{gap:6px}
+  .setrow .stp button{width:26px}
+  .setrow .stp .val{padding:0}
+  .sethead{gap:6px}
+}
 /* a 3rd stepper (RIR) needs narrower buttons and a tighter row gap to fit next to weight+reps
    on narrow phones, same technique as the exercise-config sheet's three-steppers-in-a-row
    (.cfgrow below) — RIR's own value is short ("1.5") so its buttons shrink the most, weight/reps
@@ -571,7 +583,7 @@ h4.sec{
    The header shares the numbers so its labels stay centred over the steppers they name. */
 .setrow.eff3,.sethead.eff3{gap:6px}
 .setrow.eff3 .stp.w,.sethead.eff3 .w-sp{flex:1.2}
-.setrow.eff3 .stp.r,.sethead.eff3 .r-sp{flex:1}
+.setrow.eff3 .stp.r,.sethead.eff3 .r-sp{flex:1;min-width:0}
 .setrow.eff3 .stp.eff,.sethead.eff3 .eff-sp{flex:.85}
 .setrow.eff3 .stp button{width:23px}
 .setrow.eff3 .stp.eff button{width:20px}

@@ -4,7 +4,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import webpush from 'web-push';
 import { teamRoutes } from './teams.js';
-import { store, BACKEND } from './store.js';
+import { store, BACKEND, READ_ONLY } from './store.js';
 
 // Two separate questions, deliberately not one flag:
 //
@@ -348,7 +348,7 @@ export const routes = {
   // the app it was before the feature existed.
   'GET /api/config': async (req, res) => {
     const coach = coachConfig ? coachConfig.publicConfig() : null;
-    json(res, 200, { ...(coach ? { coach } : {}) });
+    json(res, 200, { ...(coach ? { coach } : {}), ...(READ_ONLY ? { readOnly: true } : {}) });
   },
 
   'GET /api/me': async (req, res) => {
@@ -603,7 +603,11 @@ export async function dispatch(req, res) {
   try { await handler(req, res); }
   catch (e) {
     console.error(key, e);
-    if (!res.headersSent) json(res, 500, { error: 'server error' });
+    if (res.headersSent) return;
+    // A write the production guard refused is not a bug — it is the guard doing its job, and
+    // the caller deserves to be told that rather than shown a generic failure.
+    if (e.name === 'ReadOnlyError') return json(res, 403, { error: e.message, readOnly: true });
+    json(res, 500, { error: 'server error' });
   }
 }
 
@@ -660,8 +664,14 @@ export async function serve(req, res) {
       } catch (e) {
         if (e.name === 'ConflictError' && attempt < MAX_ATTEMPTS) continue;   // replay on fresh data
         console.error('commit failed', req.method, req.url, e);
-        return { status: 503, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-                 body: '{"error":"busy — please try again"}' };
+        const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
+        // A write the production guard refused is not the store being busy, and saying so
+        // would send someone hunting a database problem that does not exist. It is deliberate,
+        // it will never succeed on a retry, and the message explains both.
+        if (e.name === 'ReadOnlyError') {
+          return { status: 403, headers, body: JSON.stringify({ error: e.message, readOnly: true }) };
+        }
+        return { status: 503, headers, body: '{"error":"busy — please try again"}' };
       }
       return cap.out;
     }

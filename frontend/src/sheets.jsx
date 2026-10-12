@@ -18,7 +18,7 @@ import { loadOfWorkouts } from './lib/muscles.js'
 import { parseImport, mergeImport } from './lib/import-csv.js'
 import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-share.js'
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
-import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC } from './lib/progression.js'
+import { nextPrescription, applyPrescription, policyFor, defaultIncrement, weightStep, POLICIES_FOR, POLICY_NAME, POLICY_DESC } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
 
 const S = () => useStore.getState().S
@@ -476,8 +476,6 @@ function ProgressionFields({ ex, mode, c, setC, routine, unit }) {
     {active !== 'off' && <div className="row cfgrow" style={{ marginBottom: 18 }}>
       <Stepper label={mode === 'time' ? t('Step (seconds)') : t('Step ({0})', unit)} value={inc}
         step={mode === 'time' ? 5 : 1.25} decimal={mode !== 'time'} onChange={v => setC(x => ({ ...x, inc: v }))} />
-      {active === 'double' && <Stepper label={t('Reps from')} value={c.repsMin || Math.max(1, (c.reps || 10) - 2)}
-        step={1} decimal={false} onChange={v => setC(x => ({ ...x, repsMin: v }))} />}
     </div>}
   </>
 }
@@ -491,6 +489,13 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine }) {
   const mode = cardio ? 'cardio' : modeOf({ ...c, id: ex.id })
   // Keep whatever the other mode already had (sets, weight) and fill only what is missing.
   const setMode = m => setC(x => ({ ...defaultConfig(ex.id, m), ...x, mode: m }))
+  const wStep = weightStep(ex.id, st.unit)
+  const ranged = !cardio && mode === 'reps' && policyFor({ ...c, id: ex.id }, routine, 'reps') === 'double'
+  // A range with no stored bottom gets one the moment it is shown, so the field holds a real
+  // number from the start instead of displaying a default it does not have.
+  useEffect(() => {
+    if (ranged && c.repsMin == null) setC(x => ({ ...x, repsMin: Math.max(1, (x.reps || 10) - 2) }))
+  }, [ranged])
   const save = () => {
     close()
     const sets = Math.max(1, Math.round(c.sets) || (cardio ? 1 : 3))
@@ -502,9 +507,16 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine }) {
     if (cardio) onSave({ sets, min: Math.max(1, Math.round(c.min) || 20), speed: Math.max(0, c.speed || 8) })
     else if (mode === 'time') onSave({ sets, mode: 'time', sec: Math.max(1, Math.round(c.sec) || 45), weight: Math.max(0, c.weight || 0), ...prog })
     else {
-      const reps = Math.max(1, Math.round(c.reps) || 10)
+      let reps = Math.max(1, Math.round(c.reps) || 10)
       const out = { sets, mode: 'reps', reps, weight: Math.max(0, c.weight || 0), ...prog }
-      if (policyFor({ ...c, id: ex.id }, routine, 'reps') === 'double') out.repsMin = Math.min(reps, Math.max(1, Math.round(c.repsMin) || Math.max(1, reps - 2)))
+      if (ranged) {
+        // Typed the wrong way round is still a range: keep both numbers, in order, rather than
+        // quietly flattening the bottom onto the top.
+        let low = Math.max(1, Math.round(c.repsMin) || Math.max(1, reps - 2))
+        if (low > reps) [low, reps] = [reps, low]
+        out.reps = reps
+        out.repsMin = low
+      }
       onSave(out)
     }
   }
@@ -528,13 +540,29 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine }) {
       </> : mode === 'time' ? <>
         <Stepper label={t('Sets')} value={c.sets} step={1} decimal={false} onChange={v => setC(x => ({ ...x, sets: v }))} />
         <Stepper label={t('Seconds')} value={c.sec} step={5} decimal={false} onChange={v => setC(x => ({ ...x, sec: v }))} />
-        <Stepper label={t('Weight ({0})', st.unit)} value={c.weight} step={2.5} onChange={v => setC(x => ({ ...x, weight: v }))} />
+        <Stepper label={t('Weight ({0})', st.unit)} value={c.weight} step={wStep} onChange={v => setC(x => ({ ...x, weight: v }))} />
+      </> : ranged ? <>
+        <Stepper label={t('Sets')} value={c.sets} step={1} decimal={false} onChange={v => setC(x => ({ ...x, sets: v }))} />
+        <Stepper label={t('Weight ({0})', st.unit)} value={c.weight} step={wStep} onChange={v => setC(x => ({ ...x, weight: v }))} />
       </> : <>
         <Stepper label={t('Sets')} value={c.sets} step={1} decimal={false} onChange={v => setC(x => ({ ...x, sets: v }))} />
         <Stepper label={t('Reps')} value={c.reps} step={1} decimal={false} onChange={v => setC(x => ({ ...x, reps: v }))} />
-        <Stepper label={t('Weight ({0})', st.unit)} value={c.weight} step={2.5} onChange={v => setC(x => ({ ...x, weight: v }))} />
+        <Stepper label={t('Weight ({0})', st.unit)} value={c.weight} step={wStep} onChange={v => setC(x => ({ ...x, weight: v }))} />
       </>}
     </div>
+    {/* Double progression works inside a rep range, so the range is edited as one: you climb
+        from the bottom to the top, then the weight goes up and you start at the bottom again.
+        `??` and not `||` on the bottom value: an emptied field is 0 for a moment while you type,
+        and falling back to the default there snapped the field back on every keystroke. */}
+    {ranged && <div style={{ marginBottom: 18 }}>
+      <div className="row cfgrow">
+        <Stepper label={t('Reps from')} value={c.repsMin ?? ''} step={1} decimal={false} onChange={v => setC(x => ({ ...x, repsMin: v }))} />
+        <Stepper label={t('Reps to')} value={c.reps} step={1} decimal={false} onChange={v => setC(x => ({ ...x, reps: v }))} />
+      </div>
+      {c.repsMin > 0 && c.reps > 0 && c.repsMin > c.reps && <div className="small dim" style={{ marginTop: 6 }}>
+        {t('The range runs {0}–{1}; it is saved that way round.', c.reps, c.repsMin)}
+      </div>}
+    </div>}
     {mode === 'time' && <div className="small dim" style={{ marginBottom: 18 }}>
       {t('A timer runs while you hold the set. Leave the weight at 0 for bodyweight holds.')}
     </div>}
@@ -694,23 +722,34 @@ function DayAssign({ day, close }) {
 export const dayAssignSheet = day => ui().openSheet(close => <DayAssign day={day} close={close} />)
 
 /* ============================ workout detail ============================ */
-function WorkoutDetail({ w, close }) {
+// Also used for a teammate's session (`other`), which is read-only and carries their unit and
+// their own custom exercises — numbers in someone else's log are in their unit, not yours.
+function WorkoutDetail({ w, close, other }) {
   const st = useStore(s => s.S)
+  const unit = other ? other.unit : st.unit
+  const custom = Object.fromEntries((other?.customEx || []).map(c => [c.id, c]))
   return <>
-    <h3>{w.name}</h3>
-    <div className="muted small" style={{ marginBottom: 12 }}>{[fmtDate(w.d, true), ...durPart(w.end - w.start), fmtVol(w.vol, st.unit), ...(w.bw ? [fmtNum(w.bw) + ' ' + st.unit] : [])].join(' · ')}</div>
+    <h3>{w.name || t('Workout')}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{[...(other ? [other.name] : []), fmtDate(w.d, true), ...durPart(w.end - w.start), fmtVol(w.vol, unit), ...(w.bw ? [fmtNum(w.bw) + ' ' + unit] : [])].join(' · ')}</div>
     {w.entries.map((e, i) => {
-      const ex = EXIDX[e.id]
+      const ex = EXIDX[e.id] || custom[e.id]
+      const done = e.sets.filter(s => s.done)
       return <div key={i} className="row" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
-        {ex && <Thumb ex={ex} />}
+        {EXIDX[e.id] && <Thumb ex={EXIDX[e.id]} />}
         <div className="grow"><div className="tt capitalize" style={{ fontWeight: 600 }}>{ex ? ex.n : (e.n || e.id)} {w.prs && w.prs.includes(e.id) && <span className="pr"><Icon name="trophy" />PR</span>}</div>
-          <div className="ss">{e.sets.filter(s => s.done).map(s => setLabel(e.id, s, e.target)).join('  ·  ') || t('no sets')}</div></div>
+          {/* one line per set: the kilos and reps are the point when comparing with someone */}
+          {done.length ? <div className="ss" style={{ marginTop: 2 }}>
+            {done.map((s, k) => <div key={k}>{t('Set {0}', k + 1)} · {modeOf({ ...(e.target || {}), id: e.id }) === 'reps'
+              ? `${fmtNum(s.w || 0)} ${unit} × ${s.r || 0}`
+              : setLabel(e.id, s, e.target)}</div>)}
+          </div> : <div className="ss">{t('no sets')}</div>}
+        </div>
       </div>
     })}
-    <Button variant="danger" onClick={() => confirmSheet({ title: t('Delete workout?'), message: t('This removes it from your history for good.'), confirmText: t('Delete'), danger: true, onConfirm: () => { update(s => { s.workouts = s.workouts.filter(x => x.id !== w.id) }); close(); toast(t('Workout deleted')) } })}>{t('Delete workout')}</Button>
+    {!other && <Button variant="danger" onClick={() => confirmSheet({ title: t('Delete workout?'), message: t('This removes it from your history for good.'), confirmText: t('Delete'), danger: true, onConfirm: () => { update(s => { s.workouts = s.workouts.filter(x => x.id !== w.id) }); close(); toast(t('Workout deleted')) } })}>{t('Delete workout')}</Button>}
   </>
 }
-export const workoutDetailSheet = w => ui().openSheet(close => <WorkoutDetail w={w} close={close} />)
+export const workoutDetailSheet = (w, other) => ui().openSheet(close => <WorkoutDetail w={w} other={other} close={close} />)
 
 /* ============================ calendar ============================ */
 function Calendar({ start, close }) {

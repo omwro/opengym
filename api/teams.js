@@ -16,6 +16,7 @@
 import crypto from 'node:crypto';
 
 const MAX_PLANS = 30;
+const NOTE_MAX = 500;
 const NAME_MAX = 40;
 const DEFAULT_NAME = 'The team';
 
@@ -232,6 +233,30 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       json(res, 200, { team: await publicTeam(ctx.team, ctx.user) });
     },
 
+    /* ---------- shared notes per exercise ----------
+     * One note per exercise, for the whole team: which handle on the cable, which machine in
+     * which gym, seat on 4. It is about the equipment, not a person's training, which is why it
+     * lives on the team and not in anyone's own state — and why anyone may edit it. Who wrote it
+     * last travels with it so a surprising change can be asked about. */
+    'GET /api/team/notes': async (req, res) => {
+      const ctx = requireUser(req, res); if (!ctx) return;
+      json(res, 200, { notes: ctx.team.notes || {} });
+    },
+
+    'POST /api/team/notes': async (req, res) => {
+      const ctx = requireUser(req, res); if (!ctx) return;
+      const body = await readBody(req);
+      const exId = String(body.exId || '').trim().slice(0, 64);
+      if (!exId) return json(res, 400, { error: 'exercise required' });
+      const text = String(body.text ?? '').trim().slice(0, NOTE_MAX);
+      const notes = (ctx.team.notes = ctx.team.notes || {});
+      // Emptying a note removes it, rather than leaving a blank one with somebody's name on it.
+      if (!text) delete notes[exId];
+      else notes[exId] = { text, by: ctx.user.id, byName: ctx.user.name, at: Date.now() };
+      saveDb();
+      json(res, 200, { notes });
+    },
+
     // One member's training in full, for the profile screen behind a name in the feed.
     'GET /api/team/member': async (req, res) => {
       const ctx = requireUser(req, res); if (!ctx) return;
@@ -245,7 +270,11 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
           ...summarize(st),
           // Enough for the charts on a member page, and nothing that isn't training:
           // no settings, no push subscriptions, no Coach state.
-          history: (st.workouts || []).slice(-120),
+          // Newest first, by date — not by position in the array, which follows the order
+          // sessions were synced in and is not guaranteed to be chronological.
+          history: [...(st.workouts || [])]
+            .sort((a, b) => (b.d === a.d ? (b.end || 0) - (a.end || 0) : b.d < a.d ? -1 : 1))
+            .slice(0, 120),
           bodyweight: (st.bodyweight || []).slice(-365),
           exWeights: st.exWeights || {},
           customEx: st.customEx || [],

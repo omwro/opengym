@@ -126,3 +126,23 @@ Hence the two rewrites: `/` serves `frontend/index.html`, and everything else is
 under `frontend/`. There is no SPA fallback and none is needed — the app uses a hash router, so
 `/#/team` is the single path `/` as far as the server is concerned, and a request for a file
 that genuinely is not there should still 404.
+
+
+## Local development never writes here
+
+Pointing a dev server at the deployment's database is useful — you can see what is really in
+there — and it is also how a local experiment silently deletes somebody's training log. The two
+are the same action, so it is not left to configuration:
+
+- **Local development uses `./data`**, a directory on your machine. `.env` carries no Supabase
+  variables, so there is nothing to point at production by accident.
+- **If you do add them**, the store starts read-only and says so at boot. Reads work; every
+  write is refused with a `403` naming what it refused and why. The rule is in
+  [`api/store.js`](../api/store.js), at the point where a write would be sent.
+- **A write still happens when something legitimately owns the database**: the deployment
+  (Vercel sets `VERCEL`, a self-hosted server can set `OPENGYM_DEPLOYMENT=1`), a store that
+  lives on this machine (a local Supabase), or anyone who sets `ALLOW_REMOTE_WRITES=1` on
+  purpose — which is what `scripts/migrate-to-supabase.mjs` needs.
+
+Configuration is what goes wrong, so configuration is not also the protection. Both halves are
+covered by `api/test/readonly.test.js` and `api/test/readonly-allowed.test.js`.

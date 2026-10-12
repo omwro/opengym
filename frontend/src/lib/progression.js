@@ -55,10 +55,21 @@ const HEAVY_BP = ['upper legs', 'lower legs', 'back', 'hips', 'glutes']
 // increment" a linear program lives on; an exercise can override it with cfg.inc.
 export function defaultIncrement(exId, unit) {
   const ex = EXIDX[exId]
+  // Dumbbells come in pairs on a rack that goes up in fixed steps — 2 kg (5 lb) — so a
+  // prescription of +2.5 kg points at a dumbbell that does not exist.
+  if (isDumbbell(exId)) return unit === 'lb' ? 5 : 2
   const heavy = ex && HEAVY_BP.includes(ex.bp)
   if (unit === 'lb') return heavy ? 10 : 5
   return heavy ? 5 : 2.5
 }
+
+export const isDumbbell = exId => /dumbbell/i.test(EXIDX[exId]?.eq || '')
+
+/**
+ * How far one tap of the +/- on a weight field moves. Plates load in 2.5 kg (5 lb); a dumbbell
+ * rack steps in 2 kg (5 lb). Same rule as the progression increment, for the same reason.
+ */
+export const weightStep = (exId, unit) => (unit === 'lb' ? 5 : isDumbbell(exId) ? 2 : 2.5)
 export const DEFAULT_SEC_INCREMENT = 5
 
 // The policy in force for one exercise: its own override, else the routine's default, else

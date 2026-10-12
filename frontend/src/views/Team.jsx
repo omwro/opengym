@@ -11,7 +11,7 @@ import { useUI } from '../store/useUI.js'
 import { fmtDate, fmtNum, fmtVol, todayISO } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
 import { buildPlanBundle, parsePlan } from '../lib/plan-share.js'
-import { confirmSheet, planImportSheet } from '../sheets.jsx'
+import { confirmSheet, planImportSheet, workoutDetailSheet } from '../sheets.jsx'
 import * as T from '../lib/team-api.js'
 import { useTeam } from '../lib/team-api.js'
 import Icon from '../components/Icon.jsx'
@@ -70,7 +70,9 @@ function MemberRow({ m, onOpen }) {
       </div>
       <div className="dim small" style={{ marginTop: 2 }}>
         {m.live
-          ? t('training now · {0} of {1} exercises', (m.live.exIdx ?? 0) + 1, m.live.exTotal || '?')
+          // exIdx arrives 1-based — the heartbeat sends position + 1 — so it is shown as is.
+          // Adding one here again read "exercise 2 of 6" on the first and "7 of 6" on the last.
+          ? t('training now · exercise {0} of {1}', Math.min(m.live.exIdx || 1, m.live.exTotal || m.live.exIdx || 1), m.live.exTotal || '?')
           : m.last
             ? t(m.week === 1 ? '{0} session this week · last {1}' : '{0} sessions this week · last {1}', m.week, rel(m.last))
             : t('no sessions logged yet')}
@@ -91,7 +93,8 @@ function MemberSheet({ id, close }) {
   useEffect(() => { T.getMember(id).then(r => setD(r.member)).catch(e => setErr(e.message)) }, [id])
   if (err) return <div className="empty small">{err}</div>
   if (!d) return <div className="muted small">{t('Loading…')}</div>
-  const recent = (d.history || []).slice(0, 20)   // the server sends it newest-first
+  const recent = (d.history || []).slice(0, 20)   // the server sends it newest-first, by date
+  const open = w => workoutDetailSheet(w, { name: d.name, unit: d.unit, customEx: d.customEx })
   return <>
     <h3 className="capitalize">{d.name}</h3>
     <div className="tiles" style={{ textAlign: 'left', marginTop: 12 }}>
@@ -105,13 +108,14 @@ function MemberSheet({ id, close }) {
     </div>}
     <h4 className="sec">{t('Recent sessions')}</h4>
     {recent.length ? <div className="list" style={{ gap: 0 }}>
-      {recent.map(w => <div key={w.id} className="row between" style={{ padding: '9px 2px', borderBottom: '1px solid var(--sep)' }}>
+      {recent.map(w => <button key={w.id} className="row between tappable" onClick={() => open(w)}
+        style={{ width: '100%', textAlign: 'left', padding: '9px 2px', borderBottom: '1px solid var(--sep)' }}>
         <div>
           <div className="small" style={{ fontWeight: 600 }}>{w.name || t('Workout')}</div>
-          <div className="dim" style={{ fontSize: '.72rem' }}>{fmtDate(w.d, true)}{w.prs?.length ? ' · ' + t(w.prs.length === 1 ? '{0} PR' : '{0} PRs', w.prs.length) : ''}</div>
+          <div className="dim" style={{ fontSize: '.72rem' }}>{fmtDate(w.d, true)} · {t((w.entries || []).length === 1 ? '{0} exercise' : '{0} exercises', (w.entries || []).length)}{w.prs?.length ? ' · ' + t(w.prs.length === 1 ? '{0} PR' : '{0} PRs', w.prs.length) : ''}</div>
         </div>
-        <span className="small muted">{fmtVol(Math.round(w.vol || 0), d.unit)}</span>
-      </div>)}
+        <span className="row" style={{ gap: 6 }}><span className="small muted">{fmtVol(Math.round(w.vol || 0), d.unit)}</span><Icon name="chevronRight" className="chev" /></span>
+      </button>)}
     </div> : <div className="empty small">{t('Nothing logged yet.')}</div>}
   </>
 }

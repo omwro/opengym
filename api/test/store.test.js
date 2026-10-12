@@ -10,6 +10,10 @@ import assert from 'node:assert/strict';
 
 process.env.SUPABASE_URL = 'https://fake.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-test-key';
+// This file is about the write paths, against a stubbed fetch rather than any real project, so
+// it opts out of the production guard the way a legitimate writer does. The guard itself is
+// covered in readonly.test.js.
+process.env.ALLOW_REMOTE_WRITES = '1';
 const { store, BACKEND, ConflictError } = await import('../store.js');
 
 /* ---------------- a kv table with just enough PostgREST behaviour ---------------- */

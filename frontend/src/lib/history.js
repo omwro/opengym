@@ -89,7 +89,14 @@ export function exLine(cfg, unit) {
   const load = cfg.weight ? ' · ' + fmtNum(cfg.weight) + ' ' + unit : ''
   if (mode === 'cardio') return `${n} × ${cfg.min || 20} min @ ${fmtNum(cfg.speed || 8)} km/h`
   if (mode === 'time') return `${n} × ${fmtSec(cfg.sec || 45)}${load}`
-  return `${n} × ${cfg.reps}${load}`
+  return `${n} × ${repsText(cfg)}${load}`
+}
+
+/** "10", or "8–10" when a rep range is set — the range is the prescription, not just its top. */
+export function repsText(cfg) {
+  const top = cfg?.reps
+  const low = cfg?.repsMin
+  return low > 0 && top > 0 && low < top ? `${low}–${top}` : `${top ?? ''}`
 }
 
 // Drop superset ids that no longer have an adjacent partner (after unlink/reorder/remove).
@@ -109,6 +116,36 @@ export function lastEntryFor(S, exId) {
   }
   return null
 }
+/**
+ * Every past session of one exercise, newest first, with only the sets that were done.
+ * The point is the comparison over time — "two weeks ago I was at 22 for 10" — so each
+ * entry carries its date and the heaviest set alongside the sets themselves.
+ */
+export function exerciseHistory(S, exId, limit = 30) {
+  const out = []
+  const ws = [...(S.workouts || [])].sort((a, b) => (b.d === a.d ? (b.end || 0) - (a.end || 0) : b.d < a.d ? -1 : 1))
+  for (const w of ws) {
+    for (const en of w.entries || []) {
+      if (en.id !== exId) continue
+      const sets = en.sets.filter(s => s.done)
+      if (!sets.length) continue
+      out.push({ d: w.d, wid: w.id, name: w.name, sets, target: en.target || null,
+        top: Math.max(0, ...sets.map(s => s.w || 0)) })
+    }
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+/**
+ * A weight entered on one set carries to every later set that is not done yet — you change
+ * the load once, not per set. Done sets are history and keep what they were.
+ */
+export function carryWeight(sets, i, w) {
+  for (let j = i + 1; j < sets.length; j++) if (!sets[j].done) sets[j].w = w
+  return sets
+}
+
 export function bestWeightFor(S, exId) {
   let best = 0
   S.workouts.forEach(w => w.entries.forEach(e => {

@@ -8,7 +8,10 @@
  *   node scripts/migrate-to-supabase.mjs ./data
  *
  * Needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the environment, and the table from
- * supabase/schema.sql to exist.
+ * supabase/schema.sql to exist. It writes directly rather than through api/store.js, so the
+ * read-only guard that protects a deployed database from a developer machine does not apply
+ * here — running this IS the deliberate write that guard asks you to confirm. Treat the two
+ * refusals below as the equivalent safety net.
  *
  * It refuses to overwrite an instance that already has users unless --force is passed: running
  * this twice against a live deployment would roll everyone back to the state of the dump.

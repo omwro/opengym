@@ -228,3 +228,51 @@ test('the week key agrees with the client: Monday-first, so a Sunday and a Monda
   assert.equal(weekKey('2026-09-06'), '2026-08-31');            // the Sunday that closes it
   assert.equal(weekKey('2026-09-07'), '2026-09-07');            // the next Monday
 });
+
+/* ---------------- shared notes per exercise ---------------- */
+
+test('a note on an exercise is shared with everyone and says who wrote it', async () => {
+  const h = harness(); const a = h.add('u1', 'Ann'); const b = h.add('u2', 'Ben');
+  const r = await h.as(a).call('POST /api/team/notes', { exId: '0198', text: '  wide bar, seat on 4  ' });
+  assert.equal(r.code, 200);
+  const seen = (await h.as(b).call('GET /api/team/notes')).body.notes['0198'];
+  assert.equal(seen.text, 'wide bar, seat on 4', 'trimmed, and visible to the other member');
+  assert.equal(seen.byName, 'Ann');
+});
+
+test('anyone can edit a note, and the last editor is recorded', async () => {
+  const h = harness(); const a = h.add('u1', 'Ann'); const b = h.add('u2', 'Ben');
+  await h.as(a).call('POST /api/team/notes', { exId: '0198', text: 'wide bar' });
+  await h.as(b).call('POST /api/team/notes', { exId: '0198', text: 'V-handle instead' });
+  const n = (await h.as(a).call('GET /api/team/notes')).body.notes['0198'];
+  assert.equal(n.text, 'V-handle instead');
+  assert.equal(n.byName, 'Ben');
+});
+
+test('emptying a note removes it rather than keeping a blank one', async () => {
+  const h = harness(); const a = h.add('u1', 'Ann');
+  await h.as(a).call('POST /api/team/notes', { exId: '0198', text: 'wide bar' });
+  await h.as(a).call('POST /api/team/notes', { exId: '0198', text: '   ' });
+  assert.equal('0198' in (await h.as(a).call('GET /api/team/notes')).body.notes, false);
+});
+
+test('a note needs an exercise, is length-capped, and needs a session', async () => {
+  const h = harness(); const a = h.add('u1', 'Ann');
+  assert.equal((await h.as(a).call('POST /api/team/notes', { text: 'x' })).code, 400);
+  await h.as(a).call('POST /api/team/notes', { exId: '1', text: 'x'.repeat(2000) });
+  assert.equal((await h.as(a).call('GET /api/team/notes')).body.notes['1'].text.length, 500);
+  assert.equal((await h.as(null).call('GET /api/team/notes')).code, 401);
+});
+
+test("a member's history arrives newest first, whatever order it was stored in", async () => {
+  const h = harness();
+  const a = h.add('u1', 'Ann', sampleState({ workouts: [
+    { id: 'mid', d: '2026-09-05', entries: [] },
+    { id: 'new', d: '2026-09-09', entries: [] },
+    { id: 'old', d: '2026-09-01', entries: [] }
+  ] }));
+  const b = h.add('u2', 'Ben');
+  const { body } = await h.as(b).call('GET /api/team/member', null, 'id=u1');
+  assert.deepEqual(body.member.history.map(w => w.id), ['new', 'mid', 'old'],
+    'the member page shows its first rows as "recent" — they must be the newest');
+});

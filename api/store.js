@@ -39,6 +39,36 @@ export class ConflictError extends Error {
   constructor() { super('db changed underneath this request'); this.name = 'ConflictError'; }
 }
 
+/* ---------------- production guard ---------------- */
+// A remote store is shared: everyone using the deployment is looking at the same rows. A
+// developer machine pointed at it does not get a copy — it writes straight into their data,
+// which is how a local experiment quietly deletes somebody's training log.
+//
+// Configuration alone cannot prevent that, because misconfiguration is the failure. So the
+// rule is enforced here: if the store is remote and this process is not the deployment
+// itself, writes are refused. Reads still work, so pointing a local server at production to
+// look at something stays easy and stays safe.
+//
+// `VERCEL` is set by Vercel in build and at runtime. Anything else that legitimately owns a
+// remote database — a long-lived self-hosted server backed by Supabase, or the migration
+// script — says so with ALLOW_REMOTE_WRITES=1.
+const DEPLOYED = !!(process.env.VERCEL || process.env.OPENGYM_DEPLOYMENT);
+const ALLOWED = /^(1|true|yes|on)$/i.test(process.env.ALLOW_REMOTE_WRITES || '');
+// A store on this machine is nobody else's: a local Supabase, or a test double standing in for
+// one, is yours to write to and guarding it would only get in the way. The hazard is a *shared*
+// database being written to from a laptop.
+const LOCAL_STORE = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(SUPABASE_URL);
+export const READ_ONLY = BACKEND === 'supabase' && !LOCAL_STORE && !DEPLOYED && !ALLOWED;
+
+export class ReadOnlyError extends Error {
+  constructor(what) {
+    super(`refusing to ${what}: this process is not the deployment, and the store is a shared `
+      + `remote database. Reads are fine. To write anyway — a self-hosted server, or a `
+      + `migration — set ALLOW_REMOTE_WRITES=1.`);
+    this.name = 'ReadOnlyError';
+  }
+}
+
 const EMPTY_DB = () => ({ users: [], creds: [], subs: [], invites: [], teams: [] });
 // A uid reaches this as a path segment and as a URL parameter, so it is narrowed to the
 // alphabet it is minted from before it becomes either.
@@ -129,6 +159,9 @@ function supabaseBackend() {
   async function once(key, generate) {
     const existing = await get(key);
     if (existing) return existing.value;
+    // Absent, so this would create it. Against a live deployment that never happens; if it
+    // somehow did, minting a fresh session secret would sign everybody out at once.
+    if (READ_ONLY) throw new ReadOnlyError(`create "${key}"`);
     try {
       await req(base, {
         method: 'POST',
@@ -153,6 +186,7 @@ function supabaseBackend() {
       return { db: row.value, version: row.version };
     },
     async saveDb(db, version) {
+      if (READ_ONLY) throw new ReadOnlyError('write the shared database');
       if (!version) {
         // First write of this instance's life, or a genuinely empty table. Insert; a duplicate
         // means someone got there first and this request is working from stale data.
@@ -181,7 +215,10 @@ function supabaseBackend() {
       return version + 1;
     },
     async readState(uid) { return (await get(stateKey(uid)))?.value ?? null; },
-    async writeState(uid, state) { await put(stateKey(uid), state); },
+    async writeState(uid, state) {
+      if (READ_ONLY) throw new ReadOnlyError("write a profile's training data");
+      await put(stateKey(uid), state);
+    },
     async listStates() {
       const rows = await req(`${base}?key=like.state:*&select=key`);
       return (rows || []).map(r => r.key.slice(6));
@@ -190,3 +227,8 @@ function supabaseBackend() {
 }
 
 export const store = BACKEND === 'supabase' ? supabaseBackend() : fsBackend();
+
+if (READ_ONLY) {
+  console.warn('\n  ⚠  READ-ONLY: pointed at a remote database from a machine that is not the deployment.');
+  console.warn('     Reads work; every write will be refused. Set ALLOW_REMOTE_WRITES=1 to override.\n');
+}

@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
-import { exOr } from '../lib/exercises.js'
-import { effectiveRoutine, lastEntryFor, bestWeightFor, buildSets, setsDoneActive, supersetUnits, unitOf, setLabel, modeOf, EFFORT, effortOf, stepEffort, capEffort } from '../lib/history.js'
+import { exOr, EXDB, EXIDX } from '../lib/exercises.js'
+import { similarTo } from '../lib/similar.js'
+import { effectiveRoutine, lastEntryFor, bestWeightFor, buildSets, setsDoneActive, supersetUnits, unitOf, setLabel, modeOf, EFFORT, effortOf, stepEffort, capEffort, exerciseHistory, repsText, carryWeight } from '../lib/history.js'
 import { fmtNum, fmtDate, todayISO, exCount, DAYN } from '../lib/format.js'
 import { beep, vibrate } from '../lib/sound.js'
 import { t } from '../lib/i18n.js'
@@ -12,7 +13,9 @@ import Media from '../components/Media.jsx'
 import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, finishWorkout, workoutCompleteSheet, confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
-import { nextPrescription, applyPrescription } from '../lib/progression.js'
+import { Thumb } from '../components/Media.jsx'
+import { useNotes, notesAvailable } from '../lib/notes.js'
+import { nextPrescription, applyPrescription, weightStep } from '../lib/progression.js'
 import { glyphOf } from '../lib/glyphs.js'
 
 /* ---------- start chooser (no active workout) ---------- */
@@ -54,7 +57,95 @@ function Elapsed({ start }) {
 }
 
 /* ---------- one exercise block (reps: weight×reps · time: a held duration · cardio: duration+speed) ---------- */
-function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onStartTimed }) {
+
+/* ---------- exercise history ----------
+   Every past session of this exercise, newest first. The question it answers is "what was I
+   lifting two weeks ago" — so each row leads with the date and the heaviest set, and the
+   change against the session before it is spelled out rather than left to mental arithmetic. */
+function ExerciseHistory({ exId }) {
+  const S = useStore(s => s.S)
+  const ex = exOr(exId)
+  const rows = exerciseHistory(S, exId, 40)
+  return <>
+    <h3 className="capitalize">{ex.n}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{rows.length ? t(rows.length === 1 ? '{0} session' : '{0} sessions', rows.length) : t('Not done before')}</div>
+    {rows.length ? <div className="list" style={{ gap: 0 }}>
+      {rows.map((r, i) => {
+        const prev = rows[i + 1]
+        const diff = prev && r.top > 0 && prev.top > 0 ? Math.round((r.top - prev.top) * 100) / 100 : 0
+        return <div key={r.wid + i} style={{ padding: '10px 2px', borderBottom: '1px solid var(--sep)' }}>
+          <div className="row between">
+            <span style={{ fontWeight: 600 }}>{fmtDate(r.d, true)}</span>
+            <span className="row" style={{ gap: 6 }}>
+              {r.top > 0 && <b>{fmtNum(r.top)} {S.unit}</b>}
+              {!!diff && <span className="small" style={{ color: diff > 0 ? 'var(--acc)' : 'var(--red)' }}>{diff > 0 ? '+' : ''}{fmtNum(diff)}</span>}
+            </span>
+          </div>
+          <div className="small dim" style={{ marginTop: 3 }}>{r.sets.map(x => setLabel(exId, x, r.target)).join('  ·  ')}</div>
+        </div>
+      })}
+    </div> : <div className="empty small">{t('Your sessions of this exercise will show up here.')}</div>}
+  </>
+}
+const exerciseHistorySheet = exId => useUI.getState().openSheet(() => <ExerciseHistory exId={exId} />)
+
+/* ---------- shared note ---------- */
+function NoteEditor({ exId, note, close }) {
+  const save = useNotes(s => s.save)
+  const toast = useUI(s => s.toast)
+  const [text, setText] = useState(note?.text || '')
+  const [busy, setBusy] = useState(false)
+  const go = async () => {
+    setBusy(true)
+    try { await save(exId, text); close(); toast(text.trim() ? t('Note saved for everyone') : t('Note removed')) }
+    catch (e) { toast(e.message || t('Could not save the note')) }
+    finally { setBusy(false) }
+  }
+  return <>
+    <h3 className="capitalize">{exOr(exId).n}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{t('Shared with everyone on this server — which handle, which machine, seat height. Leave it empty to remove it.')}</div>
+    <textarea className="input" rows={4} maxLength={500} value={text} autoFocus
+      placeholder={t('e.g. V-handle, seat on 4, the machine by the window')}
+      onChange={e => setText(e.target.value)} style={{ resize: 'vertical', minHeight: 96 }} />
+    {note && <div className="dim small" style={{ marginTop: 6 }}>{t('Last edited by {0}', note.byName)}</div>}
+    <div style={{ height: 12 }} />
+    <Button variant="primary" icon="check" disabled={busy} onClick={go}>{t('Save')}</Button>
+  </>
+}
+const noteSheet = (exId, note) => useUI.getState().openSheet(close => <NoteEditor exId={exId} note={note} close={close} />)
+
+/* ---------- alternative exercise ----------
+   The machine is taken: do something that trains the same thing instead. Suggestions lead
+   with what you swapped to last time for this exercise, then the same target muscle, then the
+   same body part — so the usual stand-in is one tap, not a search. */
+
+function SwapSheet({ exId, onPick, close }) {
+  const S = useStore(s => s.S)
+  const [q, setQ] = useState('')
+  const remembered = (S.alts?.[exId] || []).filter(id => EXIDX[id])
+  const pool = similarTo(exId).filter(e => !remembered.includes(e.id))
+  const ql = q.trim().toLowerCase()
+  const shown = (ql ? EXDB.filter(e => e.id !== exId && e.n.toLowerCase().includes(ql)) : pool).slice(0, 40)
+  const row = e => <div key={e.id} className="item" onClick={() => { close(); onPick(e) }}>
+    <Thumb ex={e} /><div className="grow"><div className="tt capitalize">{e.n}</div><div className="ss capitalize">{t(e.tg || e.bp)} · {t(e.eq)}</div></div>
+    <Icon name="shuffle" className="chev" />
+  </div>
+  return <>
+    <h3>{t('Swap exercise')}</h3>
+    <div className="muted small" style={{ marginBottom: 10 }}>{t('Machine taken? Do one of these instead of {0} — this session only, your routine stays as it is.', exOr(exId).n)}</div>
+    <input className="input" placeholder={t('Search all exercises…')} value={q} onChange={e => setQ(e.target.value)} />
+    <div style={{ height: 10 }} />
+    {!ql && remembered.length > 0 && <>
+      <div className="lbl2" style={{ margin: '4px 2px 6px' }}>{t('You used before')}</div>
+      <div className="list">{remembered.map(id => row(EXIDX[id]))}</div>
+      <div className="lbl2" style={{ margin: '14px 2px 6px' }}>{t('Similar')}</div>
+    </>}
+    <div className="list">{shown.map(row)}</div>
+    {!shown.length && <div className="empty small">{t('Nothing matches.')}</div>}
+  </>
+}
+
+function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onStartTimed, onSwap }) {
   const S = useStore(s => s.S)
   const working = useUI(s => s.work)
   const entry = S.active.entries[entryIdx]
@@ -69,11 +160,15 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
   // What the progression policy decided for this session, and why (issue #17). Computed when
   // the session was built so the reason matches the numbers already in the rows.
   const plan = entry.plan
+  // A dumbbell rack steps in 2 kg, plates in 2.5 — the +/- follows the equipment.
+  const wStep = weightStep(entry.id, S.unit)
+  const note = useNotes(st => st.notes[entry.id])
+  const canNote = notesAvailable()
   const col1 = cardio ? { f: 'min', step: 1, dec: false, hd: t('Duration (min)') }
     : timed ? { f: 'sec', step: 5, dec: false, hd: t('Seconds') }
-      : { f: 'w', step: 2.5, dec: true, hd: t('Weight ({0})', S.unit) }
+      : { f: 'w', step: wStep, dec: true, hd: t('Weight ({0})', S.unit) }
   const col2 = cardio ? { f: 'speed', step: 0.5, dec: true, hd: t('Speed (km/h)') }
-    : timed ? { f: 'w', step: 2.5, dec: true, hd: t('Weight ({0})', S.unit) }
+    : timed ? { f: 'w', step: wStep, dec: true, hd: t('Weight ({0})', S.unit) }
       : { f: 'r', step: 1, dec: false, hd: t('Reps') }
   // Effort (RIR or RPE, whichever the profile logs) only makes sense for weighted rep sets,
   // not cardio/timed holds, and is opt-in since it adds a third stepper to every row. `opt`
@@ -102,14 +197,28 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
     <Media ex={ex} key={entry.id} compact={compact} minimizable />
     <div className="row between" style={{ marginBottom: 6 }}>
       <div style={{ fontSize: compact ? 17 : 20, fontWeight: 600, letterSpacing: '-.02em', textTransform: 'capitalize', lineHeight: 1.2 }}>{ex.n}</div>
-      <button className="iconbtn" aria-label={t('Details')} onClick={() => exerciseDetailSheet(ex)}><Icon name="info" /></button>
+      <div className="row" style={{ gap: 6, flex: 'none' }}>
+        <button className="iconbtn" aria-label={t('History')} onClick={() => exerciseHistorySheet(entry.id)}><Icon name="history" /></button>
+        {onSwap && <button className="iconbtn" aria-label={t('Swap exercise')} onClick={onSwap}><Icon name="shuffle" /></button>}
+        <button className="iconbtn" aria-label={t('Details')} onClick={() => exerciseDetailSheet(ex)}><Icon name="info" /></button>
+      </div>
     </div>
     <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
       {cardio && <span className="tag acc"><Icon name="figureRun" />{t('Cardio')}</span>}
       {(ex.tg || ex.bp) && <span className="tag">{t(ex.tg || ex.bp)}</span>}
       {ex.eq && <span className="tag">{t(ex.eq)}</span>}
+      {mode === 'reps' && entry.target?.reps > 0 && <span className="tag nocap">{t('Target')} {entry.target.sets || entry.sets.length} × {repsText(entry.target)}</span>}
       {best > 0 && <span className="tag nocap">{t('Best:')} {fmtNum(best)} {S.unit}</span>}
+      {entry.swappedFrom && <span className="tag nocap">{t('instead of {0}', exOr(entry.swappedFrom).n)}</span>}
     </div>
+    {/* The team's note on this exercise — handles, machine, seat height. Shared, so the
+        person who works it out once saves everyone else the same fiddling. */}
+    {canNote && (note
+      ? <button className="exnote tappable" style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 8 }} onClick={() => noteSheet(entry.id, note)}>
+          <span className="row" style={{ gap: 6, alignItems: 'flex-start' }}><Icon name="pencil" style={{ flex: 'none', marginTop: 2, fontSize: 13 }} /><span style={{ whiteSpace: 'pre-wrap' }}>{note.text}</span></span>
+          <span className="dim" style={{ display: 'block', fontSize: '.72rem', marginTop: 4 }}>{note.byName} · {fmtDate(new Date(note.at).toISOString().slice(0, 10), true)}</span>
+        </button>
+      : <button className="dim small" style={{ marginBottom: 8, padding: '2px 0' }} onClick={() => noteSheet(entry.id, null)}>+ {t('Add a note for everyone (handles, machine, settings)')}</button>)}
     {last && <div className="small dim" style={{ marginBottom: 4 }}>{t('Last time')} ({fmtDate(last.d)}): {last.sets.map(s => setLabel(entry.id, s, last.target)).join(', ')}</div>}
     {plan && plan.why && plan.kind !== 'off' && <div className={'progline' + (plan.kind === 'deload' ? ' warn' : '')}>
       <Icon name={plan.kind === 'up' ? 'arrowUp' : plan.kind === 'deload' ? 'arrowDown' : 'lightbulb'} />
@@ -159,6 +268,10 @@ function ActiveWorkout() {
   // what was actually logged — in the session, in history and in a backup.
   const setField = (idx, i, field, v) => mutEntry(idx, e => {
     if (v == null) delete e.sets[i][field]; else e.sets[i][field] = v
+    // A weight you just entered is the weight you are lifting: every set after it that is
+    // not done yet takes it too, so changing the load means typing it once, not per set.
+    // Sets already done keep what they were — that is history.
+    if (field === 'w' && v != null) carryWeight(e.sets, i, v)
   })
   const modeAt = idx => modeOf({ ...(A.entries[idx].target || {}), id: A.entries[idx].id })
   const addSet = idx => mutEntry(idx, e => {
@@ -169,6 +282,32 @@ function ActiveWorkout() {
     else e.sets.push({ w: l ? l.w : 0, r: l ? l.r : e.target.reps, done: false })
   })
   const removeSet = idx => mutEntry(idx, e => { if (e.sets.length > 1) e.sets.pop() })
+
+  // Replace one exercise for this session only. The prescription (sets, reps, range, rule)
+  // carries over; the weight does not, because 40 kg on one machine says nothing about another
+  // — buildSets takes it from the new exercise's own history instead.
+  const doSwap = (idx, picked) => update(s => {
+    const old = s.active.entries[idx]
+    const original = old.swappedFrom || old.id
+    const target = { ...(old.target || {}), id: picked.id, weight: 0 }
+    const full = { ...target, id: picked.id }
+    const plan = nextPrescription(s, full, s.routines.find(r => r.id === s.active.routineId))
+    s.active.entries[idx] = { id: picked.id, target, plan, sg: old.sg, swappedFrom: original,
+      sets: applyPrescription(buildSets(s, full), plan) }
+    // Remember the stand-in so it is offered first the next time the machine is taken.
+    s.alts = s.alts || {}
+    s.alts[original] = [picked.id, ...(s.alts[original] || []).filter(x => x !== picked.id)].slice(0, 5)
+  })
+  const swap = idx => {
+    const e = A.entries[idx]
+    const go = () => useUI.getState().openSheet(close => <SwapSheet exId={e.swappedFrom || e.id} close={close} onPick={ex => doSwap(idx, ex)} />)
+    if (e.sets.some(x => x.done)) confirmSheet({
+      title: t('Swap this exercise?'),
+      message: t('The sets you already ticked off for {0} are dropped.', exOr(e.id).n),
+      confirmText: t('Swap'), onConfirm: go
+    })
+    else go()
+  }
 
   // A timed set is held, not typed. The work timer records what was actually held — an early
   // finish logs 0:38 of a 0:45 target rather than crediting the full prescription — and then
@@ -208,6 +347,10 @@ function ActiveWorkout() {
     else if (exJustDone && cardioEntry) useUI.getState().toast(t('Cardio logged'))
     else if (exJustDone && m === 'time') useUI.getState().toast(t('Hold logged'))
   }
+
+  // Fetch the team's notes once per workout, so a note added on someone else's phone since
+  // the last session is there when you get to that machine.
+  useEffect(() => { useNotes.getState().load() }, [])
 
   // Live-presence heartbeat so the admin dashboard can show who's training now. Signed-in only —
   // guests have no server session. Reads fresh state each tick so progress stays current.
@@ -252,19 +395,33 @@ function ActiveWorkout() {
           {unit.map((idx, k) => <div key={idx} className="ss-ex">
             {k > 0 && <div className="ss-amp">+</div>}
             <ExerciseBlock entryIdx={idx} compact
-              onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onStartTimed={i => startTimed(idx, i)} />
+              onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onStartTimed={i => startTimed(idx, i)} onSwap={() => swap(idx)} />
           </div>)}
         </div>
       ) : (
-        <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} />
+        <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swap(cur)} />
       )}
     </> : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}</div>}
 
     <div style={{ height: 12 }} />
-    <div className="row">
-      <Button icon="chevronLeft" disabled={unitIdx <= 0} onClick={() => update(s => { s.active.cur = units[unitIdx - 1][0] })}>{t('Prev')}</Button>
-      <Button trailingIcon="chevronRight" disabled={unitIdx < 0 || unitIdx >= units.length - 1} onClick={() => update(s => { s.active.cur = units[unitIdx + 1][0] })}>{t('Next')}</Button>
-    </div>
+    {/* Next is the button you actually press between exercises, so it gets two thirds of the
+        row and says where it goes — you know what to walk to before you leave this one. */}
+    {(() => {
+      const nextUnit = unitIdx >= 0 ? units[unitIdx + 1] : null
+      const nextName = nextUnit ? nextUnit.map(i => exOr(A.entries[i].id).n).join(' + ') : null
+      return <div className="row" style={{ gap: 8, alignItems: 'stretch' }}>
+        <Button icon="chevronLeft" style={{ flex: 1, minWidth: 0 }} disabled={unitIdx <= 0}
+          onClick={() => update(s => { s.active.cur = units[unitIdx - 1][0] })}>{t('Prev')}</Button>
+        <button className="btn tinted nextbtn" style={{ flex: 2, minWidth: 0 }} disabled={!nextUnit}
+          onClick={() => update(s => { s.active.cur = nextUnit[0] })}>
+          <span style={{ minWidth: 0, textAlign: 'left' }}>
+            <span className="lbl2" style={{ display: 'block' }}>{nextUnit ? t('Next') : t('Last exercise')}</span>
+            {nextName && <span className="capitalize" style={{ display: 'block', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nextName}</span>}
+          </span>
+          {nextUnit && <Icon name="chevronRight" style={{ flex: 'none' }} />}
+        </button>
+      </div>
+    })()}
     <div style={{ height: 10 }} />
     <Button onClick={() => exercisePicker(ex => exConfigSheet(ex, null, cfg => update(s => {
       const full = { ...cfg, id: ex.id }
