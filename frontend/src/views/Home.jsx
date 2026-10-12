@@ -205,6 +205,19 @@ export default function Home() {
           : routine ? <span className="tag acc">{t('Start')}</span>
           : <Icon name="plus" className="chev" />}
       </div>
+      {/* No plan needed: start empty and add each exercise as you get to it. Hidden while a
+          session runs — there is only ever one, and the row above already resumes it. */}
+      {!S.active && <div className="today-row" style={{ marginTop: 8 }} onClick={() => startFlow(null)}>
+        <div className="row" style={{ gap: 9, minWidth: 0 }}>
+          <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="shuffle" /></span>
+          <div style={{ minWidth: 0 }}>
+            <div className="lbl2">{t('Freestyle')}</div>
+            {/* a sentence, not a name — keep the class from title-casing it */}
+            <div className="ttl" style={{ textTransform: 'none' }}>{t('Start empty, add as you go')}</div>
+          </div>
+        </div>
+        <Icon name="chevronRight" className="chev" />
+      </div>}
     </div>
 
     {coachOn && <CoachCard nav={nav} />}

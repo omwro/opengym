@@ -707,4 +707,16 @@ export default {
   '{0}: rep-range floor': '{0}: нижняя граница диапазона повторений',
   '{0}: reps': '{0}: повторения',
   '{0}: sets': '{0}: подходы',
+  // freestyle
+  'Starts empty — add each exercise when you get to it.': 'Начинается пустой — добавляйте упражнения по ходу.',
+  'Start empty, add as you go': 'Начать пустую, добавлять по ходу',
+  'This session': 'Эта сессия',
+  'Remove': 'Убрать',
+  'Exercise done!': 'Упражнение выполнено!',
+  'What’s next? Add another exercise, or call it a day.': 'Что дальше? Добавьте ещё упражнение или заканчивайте.',
+  'Add next exercise': 'Добавить следующее упражнение',
+  'Freestyle {0}': 'Свободная тренировка {0}',
+  'Saved as a routine — rename it in Plan': 'Сохранено как программа — переименуйте её в Плане',
+  'Edit the new routine': 'Изменить новую программу',
+  'Save as routine': 'Сохранить как программу',
 }

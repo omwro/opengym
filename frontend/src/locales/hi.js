@@ -707,4 +707,16 @@ export default {
   '{0}: rep-range floor': '{0}: रेप-रेंज की न्यूनतम सीमा',
   '{0}: reps': '{0}: रेप्स',
   '{0}: sets': '{0}: सेट',
+  // freestyle
+  'Starts empty — add each exercise when you get to it.': 'खाली शुरू होता है — हर एक्सरसाइज़ तब जोड़ें जब आप उस तक पहुँचें।',
+  'Start empty, add as you go': 'खाली शुरू करें, चलते-चलते जोड़ें',
+  'This session': 'यह सेशन',
+  'Remove': 'हटाएँ',
+  'Exercise done!': 'एक्सरसाइज़ पूरी!',
+  'What’s next? Add another exercise, or call it a day.': 'आगे क्या? एक और एक्सरसाइज़ जोड़ें, या आज के लिए बस करें।',
+  'Add next exercise': 'अगली एक्सरसाइज़ जोड़ें',
+  'Freestyle {0}': 'फ्रीस्टाइल {0}',
+  'Saved as a routine — rename it in Plan': 'रूटीन के रूप में सहेजा गया — प्लान में नाम बदलें',
+  'Edit the new routine': 'नया रूटीन संपादित करें',
+  'Save as routine': 'रूटीन के रूप में सहेजें',
 }

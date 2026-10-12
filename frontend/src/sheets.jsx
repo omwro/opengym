@@ -20,6 +20,7 @@ import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-sha
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, weightStep, POLICIES_FOR, POLICY_NAME, POLICY_DESC } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
+import { freestyleTarget, routineFromWorkout } from './lib/freestyle.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -826,6 +827,22 @@ export function beginWorkout(routineId, bw) {
   useUI.getState().stopRest()
   nav('/workout')
 }
+// A freestyle session has no plan to configure against, so an exercise goes straight in with
+// what you did last time (see freestyleTarget) — pick it, lift. Sets, reps and weight are all
+// still editable on the workout screen, where you are standing anyway.
+export function addFreestyleExercise(ex) {
+  update(s => {
+    if (!s.active) return
+    const full = { ...freestyleTarget(s, ex.id), id: ex.id }
+    const plan = nextPrescription(s, full, undefined)
+    const { id, ...target } = full
+    s.active.entries.push({ id, target, plan, sets: applyPrescription(buildSets(s, full), plan) })
+    s.active.cur = s.active.entries.length - 1
+  })
+}
+// Picking is the whole step, so every sheet on the way (picker, custom-exercise form) goes.
+export const freestylePicker = () => exercisePicker(ex => { ui().closeAll(); addFreestyleExercise(ex) })
+
 function TopWeight({ entryIdx, close }) {
   const st = useStore(s => s.S)
   const A = st.active
@@ -878,6 +895,17 @@ export const topWeightSheet = entryIdx => ui().openSheet(close => <TopWeight ent
 
 // Shown when the last exercise's last set is checked — finish, or keep going.
 function WorkoutComplete({ close }) {
+  // In freestyle "every exercise done" only means you are between exercises: the plan is
+  // whatever you add next, so that is the button that leads.
+  const freestyle = useStore(s => !!s.S.active && !s.S.active.routineId)
+  if (freestyle) return <div style={{ textAlign: 'center', padding: '8px 0' }}>
+    <div style={{ fontSize: 44, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}><Icon name="checkCircle" /></div>
+    <h3 style={{ margin: '8px 0' }}>{t('Exercise done!')}</h3>
+    <div className="muted small" style={{ marginBottom: 16 }}>{t('What’s next? Add another exercise, or call it a day.')}</div>
+    <Button variant="primary" icon="plus" onClick={() => { close(); freestylePicker() }}>{t('Add next exercise')}</Button>
+    <div style={{ height: 8 }} />
+    <Button icon="flag" onClick={() => { close(); finishWorkout() }}>{t('Finish workout')}</Button>
+  </div>
   return <div style={{ textAlign: 'center', padding: '8px 0' }}>
     <div style={{ fontSize: 44, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}><Icon name="checkCircle" /></div>
     <h3 style={{ margin: '8px 0' }}>{t("That's the whole workout!")}</h3>
@@ -919,6 +947,23 @@ function SessionRating({ w }) {
   </div>
 }
 
+// A freestyle session you liked can be kept: it becomes a routine with the exercises, sets and
+// weights you just did, ready to put on a weekday. Once — a second tap would make a duplicate.
+function SaveAsRoutine({ w }) {
+  const [saved, setSaved] = useState(null)
+  const save = () => {
+    const r = routineFromWorkout(w, { id: uid(), name: t('Freestyle {0}', fmtDate(w.d)), emoji: DEFAULT_GLYPH })
+    update(s => { s.routines.push(r) })
+    setSaved(r)
+    toast(t('Saved as a routine — rename it in Plan'))
+  }
+  return <div style={{ marginTop: 14 }}>
+    {saved
+      ? <Button icon="pencil" onClick={() => { ui().closeAll(); nav('/plan/r/' + saved.id) }}>{t('Edit the new routine')}</Button>
+      : <Button icon="plus" onClick={save}>{t('Save as routine')}</Button>}
+  </div>
+}
+
 function FinishSummary({ w, prs, e1prs = [], close }) {
   const st = useStore(s => s.S)
   const coachOn = !!useStore(s => s.config)?.coach?.enabled && !!st.coach?.consent?.agreedAt
@@ -938,6 +983,7 @@ function FinishSummary({ w, prs, e1prs = [], close }) {
     <h4 className="sec" style={{ textAlign: 'left' }}>{t('What you just trained')}</h4>
     <BodyMap load={loadOfWorkouts([w])} body={st.body} />
     {coachOn && <SessionRating w={w} />}
+    {!w.routineId && w.entries.length > 0 && <SaveAsRoutine w={w} />}
     <div style={{ height: 14 }} />
     <Button variant="primary" onClick={() => { close(); nav('/home') }}>{t('Nice!')}</Button>
   </div>

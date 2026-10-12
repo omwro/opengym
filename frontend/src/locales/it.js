@@ -707,4 +707,16 @@ export default {
   '{0}: rep-range floor': '{0}: minimo del range di ripetizioni',
   '{0}: reps': '{0}: ripetizioni',
   '{0}: sets': '{0}: serie',
+  // freestyle
+  'Starts empty — add each exercise when you get to it.': 'Inizia vuoto — aggiungi ogni esercizio quando ci arrivi.',
+  'Start empty, add as you go': 'Inizia vuoto, aggiungi strada facendo',
+  'This session': 'Questa sessione',
+  'Remove': 'Rimuovi',
+  'Exercise done!': 'Esercizio fatto!',
+  'What’s next? Add another exercise, or call it a day.': 'E adesso? Aggiungi un altro esercizio o chiudi qui.',
+  'Add next exercise': 'Aggiungi il prossimo esercizio',
+  'Freestyle {0}': 'Allenamento libero {0}',
+  'Saved as a routine — rename it in Plan': 'Salvato come routine — rinominala in Piano',
+  'Edit the new routine': 'Modifica la nuova routine',
+  'Save as routine': 'Salva come routine',
 }

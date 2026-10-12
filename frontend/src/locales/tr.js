@@ -707,4 +707,16 @@ export default {
   '{0}: rep-range floor': '{0}: tekrar aralığı alt sınırı',
   '{0}: reps': '{0}: tekrar',
   '{0}: sets': '{0}: set',
+  // freestyle
+  'Starts empty — add each exercise when you get to it.': 'Boş başlar — her egzersizi sırası gelince ekle.',
+  'Start empty, add as you go': 'Boş başla, ilerledikçe ekle',
+  'This session': 'Bu seans',
+  'Remove': 'Kaldır',
+  'Exercise done!': 'Egzersiz tamam!',
+  'What’s next? Add another exercise, or call it a day.': 'Sırada ne var? Başka bir egzersiz ekle ya da bugünlük bitir.',
+  'Add next exercise': 'Sonraki egzersizi ekle',
+  'Freestyle {0}': 'Serbest antrenman {0}',
+  'Saved as a routine — rename it in Plan': 'Rutin olarak kaydedildi — adını Plan’dan değiştir',
+  'Edit the new routine': 'Yeni rutini düzenle',
+  'Save as routine': 'Rutin olarak kaydet',
 }
