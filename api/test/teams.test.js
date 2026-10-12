@@ -276,3 +276,18 @@ test("a member's history arrives newest first, whatever order it was stored in",
   assert.deepEqual(body.member.history.map(w => w.id), ['new', 'mid', 'old'],
     'the member page shows its first rows as "recent" — they must be the newest');
 });
+
+test('a feed row opens the full session: every exercise and every set', async () => {
+  const h = harness();
+  h.add('u1', 'Ann', sampleState({ unit: 'lb', workouts: [{ id: 'w9', d: '2026-10-10', name: 'Pull', entries: [
+    { id: '0198', sets: [{ w: 100, r: 10, done: true }, { w: 110, r: 8, done: true }] }] }] }));
+  const b = h.add('u2', 'Ben');
+  const r = await h.as(b).call('GET /api/team/workout', null, 'uid=u1&id=w9');
+  assert.equal(r.code, 200);
+  assert.deepEqual(r.body.workout.entries[0].sets.map(s => [s.w, s.r]), [[100, 10], [110, 8]]);
+  assert.equal(r.body.member.unit, 'lb', 'read in the unit it was logged in');
+  assert.equal(r.body.member.name, 'Ann');
+  assert.equal((await h.as(b).call('GET /api/team/workout', null, 'uid=u1&id=nope')).code, 404);
+  assert.equal((await h.as(b).call('GET /api/team/workout', null, 'uid=ghost&id=w9')).code, 404);
+  assert.equal((await h.as(null).call('GET /api/team/workout', null, 'uid=u1&id=w9')).code, 401);
+});

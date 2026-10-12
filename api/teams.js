@@ -257,6 +257,23 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       json(res, 200, { notes });
     },
 
+    // One session in full — every exercise and every set — for a row tapped in the activity
+    // feed. The feed itself stays a list of summaries; the detail is fetched only when opened.
+    'GET /api/team/workout': async (req, res) => {
+      const ctx = requireUser(req, res); if (!ctx) return;
+      const q = new URL(req.url, 'http://x').searchParams;
+      const u = memberUsers().find(x => x.id === q.get('uid'))
+      if (!u) return json(res, 404, { error: 'no such member' });
+      const st = (await readState(u.id)) || {};
+      const w = (st.workouts || []).find(x => x.id === q.get('id'));
+      if (!w) return json(res, 404, { error: 'no such workout' });
+      json(res, 200, {
+        workout: w,
+        // what the detail view needs to read it right: their unit and their own exercises
+        member: { id: u.id, name: u.name, unit: st.unit === 'lb' ? 'lb' : 'kg', customEx: st.customEx || [] }
+      });
+    },
+
     // One member's training in full, for the profile screen behind a name in the feed.
     'GET /api/team/member': async (req, res) => {
       const ctx = requireUser(req, res); if (!ctx) return;

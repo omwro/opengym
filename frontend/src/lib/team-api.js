@@ -15,6 +15,7 @@ export const teamsAvailable = user => !!user && !DEMO && !MOBILE
 export const getTeam = () => api('/api/team')
 export const renameTeam = name => api('/api/team/rename', { method: 'POST', body: JSON.stringify({ name }) })
 export const getFeed = (limit = 60) => api('/api/team/feed?limit=' + limit)
+export const getWorkout = (uid, id) => api('/api/team/workout?uid=' + encodeURIComponent(uid) + '&id=' + encodeURIComponent(id))
 export const getMember = id => api('/api/team/member?id=' + encodeURIComponent(id))
 export const getPlan = id => api('/api/team/plan?id=' + encodeURIComponent(id))
 export const publishPlan = body => api('/api/team/plans', { method: 'POST', body: JSON.stringify(body) })

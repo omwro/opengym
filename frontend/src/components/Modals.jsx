@@ -31,7 +31,11 @@ function Sheet({ sheet }) {
     const el = ref.current, d = drag.current
     if (d.startY === null) return
     el.style.transition = 'transform .2s'
-    if (d.delta > 90 && !sheet.locked) { el.style.transform = 'translateY(110%)'; setTimeout(() => closeSheet(sheet.id), 180) }
+    // `locked` guards against an accidental dismissal — a stray tap on the backdrop — not a
+    // deliberate one. A sheet that shows a grab handle and follows your finger down must also
+    // go when you let go of it down there; snapping back reads as broken. Locked sheets only
+    // ask for a longer pull, so a scroll that happens to start at the top cannot do it.
+    if (d.delta > (sheet.locked ? 160 : 90)) { el.style.transform = 'translateY(110%)'; setTimeout(() => closeSheet(sheet.id), 180) }
     else el.style.transform = ''
     d.startY = null
   }

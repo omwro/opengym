@@ -216,6 +216,18 @@ function ShareSheet({ onChanged, close }) {
 
 function Feed({ enabled }) {
   const [feed, setFeed] = useState(null)
+  const [opening, setOpening] = useState(null)
+  const toast = useUI(s => s.toast)
+  // The feed is summaries; the sets are fetched when a row is opened, then shown in the same
+  // read-only detail the member page uses.
+  const open = f => {
+    if (opening) return
+    setOpening(f.uid + f.id)
+    T.getWorkout(f.uid, f.id)
+      .then(({ workout, member }) => workoutDetailSheet(workout, member))
+      .catch(e => toast(e.message))
+      .finally(() => setOpening(null))
+  }
   useEffect(() => {
     if (!enabled) return
     let live = true
@@ -225,7 +237,8 @@ function Feed({ enabled }) {
   if (!feed) return <div className="muted small">{t('Loading…')}</div>
   if (!feed.length) return <div className="empty small">{t('No sessions from the team yet.')}</div>
   return <div className="list" style={{ gap: 0 }}>
-    {feed.map(f => <div key={f.uid + f.id} className="row between" style={{ padding: '10px 2px', borderBottom: '1px solid var(--sep)' }}>
+    {feed.map(f => <button key={f.uid + f.id} className="row between tappable" onClick={() => open(f)}
+      style={{ width: '100%', textAlign: 'left', padding: '10px 2px', borderBottom: '1px solid var(--sep)', opacity: opening === f.uid + f.id ? .5 : 1 }}>
       <div style={{ minWidth: 0 }}>
         <div className="small" style={{ fontWeight: 600 }}>
           <span className="capitalize">{f.who}</span>{f.name ? ' · ' + f.name : ''}
@@ -236,8 +249,8 @@ function Feed({ enabled }) {
           {f.prs?.length ? <span style={{ color: 'var(--yellow)' }}>{t(f.prs.length === 1 ? '{0} PR' : '{0} PRs', f.prs.length)}</span> : null}
         </div>
       </div>
-      <span className="small muted">{f.vol ? fmtVol(f.vol, f.unit) : ''}</span>
-    </div>)}
+      <span className="row" style={{ gap: 6, flex: 'none' }}><span className="small muted">{f.vol ? fmtVol(f.vol, f.unit) : ''}</span><Icon name="chevronRight" className="chev" /></span>
+    </button>)}
   </div>
 }
 
