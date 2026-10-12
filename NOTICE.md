@@ -59,8 +59,7 @@ SOFTWARE.
 
 ## Exercise data & media
 
-The exercise names, instructions (English in `frontend/src/lib/exercises-data.js`, other
-languages in `frontend/src/instr/`, regenerated via `scripts/build-instructions.mjs`), images
+The exercise names, instructions (in `frontend/src/lib/exercises-data.js`), images
 and animations (fetched into `media/` at build time) come from
 [**hasaneyldrm/exercises-dataset**](https://github.com/hasaneyldrm/exercises-dataset)
 and are **not** covered by openGym's AGPL license — they remain under that dataset's own terms.

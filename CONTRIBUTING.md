@@ -43,7 +43,8 @@ cd frontend && npm test
 ## Good first issues
 
 - Additional starter plans (upper/lower, full-body, 5×5…)
-- More languages for the exercise instructions (the dataset ships several)
+- A UI translation: a `src/locales/<code>.js` dictionary keyed by the English strings, plus an
+  entry in `LANGS` in `src/lib/i18n.js`
 - Percentage / training-max programming (5/3/1-style) on top of the progression engine in
   `src/lib/progression.js` — the policy interface is already there
 - Accessibility passes on the workout and chart screens

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### English only
+
+The eleven UI translations and nine exercise-instruction packs are removed; the app is in
+English. A profile that had another language saved simply opens in English, and the Language
+row in Settings is hidden while there is nothing to choose. The `t()` mechanism stays, so a
+language can come back as a single `src/locales/<code>.js` file plus an entry in `LANGS`.
+
 ### The whole workout, one tap away
 
 The workout screen shows one exercise at a time. Tap the workout's name in the header and the

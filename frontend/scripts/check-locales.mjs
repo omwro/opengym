@@ -9,16 +9,17 @@
 // The reference is the union of all locales, not one blessed file: a key added to a
 // single locale then flags the other ten instead of passing unnoticed.
 
-import { readdirSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const localesDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'locales')
-const files = readdirSync(localesDir).filter(f => f.endsWith('.js')).sort()
+const files = (existsSync(localesDir) ? readdirSync(localesDir) : []).filter(f => f.endsWith('.js')).sort()
 
+// English-only is a valid state: the source strings are English and need no file.
 if (!files.length) {
-  console.error(`No locale files found in ${localesDir}`)
-  process.exit(1)
+  console.log('No locale files — English only, nothing to compare.')
+  process.exit(0)
 }
 
 const locales = new Map()
