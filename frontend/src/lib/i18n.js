@@ -5,17 +5,14 @@
 // language, from the upstream dataset) — also lazy-loaded on language switch.
 import { useSyncExternalStore } from 'react'
 
-// UI languages. de/pt have no instruction pack upstream — instructions fall back to English.
-export const LANGS = {
-  en: 'English', de: 'Deutsch', es: 'Español', fr: 'Français', it: 'Italiano',
-  pt: 'Português', pl: 'Polski', tr: 'Türkçe', ru: 'Русский', zh: '中文',
-  ko: '한국어', hi: 'हिन्दी'
-}
-export const INSTR_LANGS = ['en', 'es', 'fr', 'it', 'tr', 'ru', 'zh', 'hi', 'pl', 'ko']
-const DATE_LOCALES = {
-  en: 'en-GB', de: 'de-DE', es: 'es-ES', fr: 'fr-FR', it: 'it-IT', pt: 'pt-PT',
-  pl: 'pl-PL', tr: 'tr-TR', ru: 'ru-RU', zh: 'zh-CN', ko: 'ko-KR', hi: 'hi-IN'
-}
+// UI languages. English only for now: the source strings are English, so it needs no
+// locale file. Adding a language = a src/locales/<code>.js dictionary plus an entry here
+// (and in DATE_LOCALES); a profile that had a removed language saved falls back to English.
+export const LANGS = { en: 'English' }
+// Languages with an exercise-instruction pack in src/instr/. English ships inside
+// exercises-data.js; any other language falls back to it.
+export const INSTR_LANGS = ['en']
+const DATE_LOCALES = { en: 'en-GB' }
 
 const localePacks = import.meta.glob('../locales/*.js')
 const instrPacks = import.meta.glob('../instr/*.js')

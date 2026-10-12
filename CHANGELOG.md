@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### English only
+
+The eleven UI translations and nine exercise-instruction packs are removed; the app is in
+English. A profile that had another language saved simply opens in English, and the Language
+row in Settings is hidden while there is nothing to choose. The `t()` mechanism stays, so a
+language can come back as a single `src/locales/<code>.js` file plus an entry in `LANGS`.
+
+### The whole workout, one tap away
+
+The workout screen shows one exercise at a time. Tap the workout's name in the header and the
+whole session opens in a sheet: every exercise in order (supersets kept together), each set as
+it stands — ticked ones marked, the rest showing the weight × reps still to do — and the one
+you are on highlighted. Tap any exercise to jump straight to it.
+
 ### Freestyle: start empty, fill it in as you go
 
 An empty "pick as you go" workout already existed, but it was hidden behind a planned day and
