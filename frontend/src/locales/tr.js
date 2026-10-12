@@ -719,4 +719,8 @@ export default {
   'Saved as a routine — rename it in Plan': 'Rutin olarak kaydedildi — adını Plan’dan değiştir',
   'Edit the new routine': 'Yeni rutini düzenle',
   'Save as routine': 'Rutin olarak kaydet',
+  // workout overview
+  'Nothing added yet.': 'Henüz bir şey eklenmedi.',
+  'Now': 'Şimdi',
+  'Show the whole workout': 'Tüm antrenmanı göster',
 }

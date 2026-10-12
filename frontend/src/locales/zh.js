@@ -719,4 +719,8 @@ export default {
   'Saved as a routine — rename it in Plan': '已保存为计划 — 可在计划中重命名',
   'Edit the new routine': '编辑新计划',
   'Save as routine': '保存为计划',
+  // workout overview
+  'Nothing added yet.': '还没有添加任何动作。',
+  'Now': '当前',
+  'Show the whole workout': '查看整个训练',
 }

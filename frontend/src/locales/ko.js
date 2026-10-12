@@ -719,4 +719,8 @@ export default {
   'Saved as a routine — rename it in Plan': '루틴으로 저장됨 — 플랜에서 이름을 바꾸세요',
   'Edit the new routine': '새 루틴 편집',
   'Save as routine': '루틴으로 저장',
+  // workout overview
+  'Nothing added yet.': '아직 추가한 운동이 없어요.',
+  'Now': '지금',
+  'Show the whole workout': '전체 운동 보기',
 }

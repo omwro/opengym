@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### The whole workout, one tap away
+
+The workout screen shows one exercise at a time. Tap the workout's name in the header and the
+whole session opens in a sheet: every exercise in order (supersets kept together), each set as
+it stands — ticked ones marked, the rest showing the weight × reps still to do — and the one
+you are on highlighted. Tap any exercise to jump straight to it.
+
 ### Freestyle: start empty, fill it in as you go
 
 An empty "pick as you go" workout already existed, but it was hidden behind a planned day and

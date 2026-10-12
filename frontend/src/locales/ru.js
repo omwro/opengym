@@ -719,4 +719,8 @@ export default {
   'Saved as a routine — rename it in Plan': 'Сохранено как программа — переименуйте её в Плане',
   'Edit the new routine': 'Изменить новую программу',
   'Save as routine': 'Сохранить как программу',
+  // workout overview
+  'Nothing added yet.': 'Пока ничего не добавлено.',
+  'Now': 'Сейчас',
+  'Show the whole workout': 'Показать всю тренировку',
 }

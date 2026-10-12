@@ -719,4 +719,8 @@ export default {
   'Saved as a routine — rename it in Plan': 'Guardado como rotina — muda o nome em Plano',
   'Edit the new routine': 'Editar a nova rotina',
   'Save as routine': 'Guardar como rotina',
+  // workout overview
+  'Nothing added yet.': 'Ainda nada adicionado.',
+  'Now': 'Agora',
+  'Show the whole workout': 'Ver o treino inteiro',
 }

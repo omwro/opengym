@@ -737,4 +737,8 @@ export default {
   'Saved as a routine — rename it in Plan': 'Als Routine gespeichert — benenne sie unter Plan um',
   'Edit the new routine': 'Neue Routine bearbeiten',
   'Save as routine': 'Als Routine speichern',
+  // workout overview
+  'Nothing added yet.': 'Noch nichts hinzugefügt.',
+  'Now': 'Jetzt',
+  'Show the whole workout': 'Ganzes Training anzeigen',
 }

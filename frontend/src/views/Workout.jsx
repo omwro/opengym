@@ -266,6 +266,56 @@ function SessionList({ entries, cur, onJump, onRemove }) {
   </div>
 }
 
+/* ---------- whole-workout overview ----------
+   Opened from the header: every exercise in the session on one screen, with each set as it
+   stands — done ones ticked, the rest showing what is still to lift. Supersets stay together
+   so the overview reads in the order you train. Tap an exercise to go to it. */
+function WorkoutOverview({ close }) {
+  const S = useStore(s => s.S)
+  const update = useStore(s => s.update)
+  const A = S.active
+  // The workout can end with this open (finish from another sheet); dismiss rather than crash.
+  useEffect(() => { if (!A) close() }, [!A])
+  if (!A) return null
+  const units = supersetUnits(A.entries)
+  const cur = Math.min(A.cur, Math.max(0, A.entries.length - 1))
+  const total = A.entries.reduce((n, e) => n + e.sets.length, 0)
+  const jump = idx => { update(s => { s.active.cur = idx }); close() }
+  return <>
+    <h3>{A.name}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>
+      <Elapsed start={A.start} /> · {exCount(units.length)} · {t('{0} sets', setsDoneActive(A) + '/' + total)}
+    </div>
+    {!A.entries.length && <div className="empty small">{t('Nothing added yet.')}</div>}
+    {units.map((u, k) => <div key={k} className={u.length > 1 ? 'ss-card' : undefined} style={{ marginBottom: 10 }}>
+      {u.length > 1 && <div className="ss-hd"><Icon name="link" />{t('Superset')}</div>}
+      {u.map(idx => {
+        const e = A.entries[idx]
+        const ex = exOr(e.id)
+        const cfg = { ...(e.target || {}), id: e.id }
+        const done = e.sets.filter(x => x.done).length
+        return <div key={idx} className="item" onClick={() => jump(idx)}
+          style={{ alignItems: 'flex-start', marginBottom: 6, ...(idx === cur ? { borderColor: 'var(--acc)' } : null) }}>
+          <Thumb ex={ex} />
+          <div className="grow" style={{ minWidth: 0 }}>
+            <div className="row between" style={{ gap: 6 }}>
+              <div className="tt capitalize">{ex.n}</div>
+              {idx === cur ? <span className="tag acc nocap">{t('Now')}</span>
+                : done === e.sets.length ? <Icon name="checkCircle" style={{ color: 'var(--acc)', flex: 'none' }} /> : null}
+            </div>
+            <div className="chips" style={{ marginTop: 6, flexWrap: 'wrap' }}>
+              {e.sets.map((x, i) => <span key={i} className={'tag nocap' + (x.done ? ' acc' : '')}>
+                {x.done && <Icon name="check" />}{setLabel(e.id, x, cfg)}
+              </span>)}
+            </div>
+          </div>
+        </div>
+      })}
+    </div>)}
+  </>
+}
+const overviewSheet = () => useUI.getState().openSheet(close => <WorkoutOverview close={close} />)
+
 /* ---------- active workout ---------- */
 function ActiveWorkout() {
   const nav = useNavigate()
@@ -409,7 +459,14 @@ function ActiveWorkout() {
   return <div className="narrow">
     <div className="hdr">
       <button className="iconbtn" aria-label={t('Discard')} onClick={() => confirmSheet({ title: t('Discard workout?'), message: t('The sets you logged in this session will be lost.'), confirmText: t('Discard'), danger: true, onConfirm: () => { update(s => { s.active = null }); stopRest(); nav('/home') } })}><Icon name="xmark" /></button>
-      <div style={{ textAlign: 'center' }}><div style={{ fontWeight: 600 }}>{A.name}</div><div className="sub"><Elapsed start={A.start} /> · {t('{0} sets', done + '/' + total)}</div></div>
+      {/* the name opens the whole session at a glance — the screen below only shows one exercise */}
+      <button className="tappable" style={{ textAlign: 'center', minWidth: 0 }} aria-label={t('Show the whole workout')} onClick={overviewSheet}>
+        <div className="row" style={{ fontWeight: 600, gap: 4, justifyContent: 'center' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{A.name}</span>
+          <Icon name="chevronDown" style={{ fontSize: 12, flex: 'none', color: 'var(--label-3)' }} />
+        </div>
+        <div className="sub"><Elapsed start={A.start} /> · {t('{0} sets', done + '/' + total)}</div>
+      </button>
       <button className="iconbtn" style={{ color: 'var(--acc)' }} aria-label={t('Finish')} onClick={finishWorkout}><Icon name="check" /></button>
     </div>
     <div className="wprog"><i style={{ width: (total ? done / total * 100 : 0) + '%' }} /></div>

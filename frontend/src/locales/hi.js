@@ -719,4 +719,8 @@ export default {
   'Saved as a routine — rename it in Plan': 'रूटीन के रूप में सहेजा गया — प्लान में नाम बदलें',
   'Edit the new routine': 'नया रूटीन संपादित करें',
   'Save as routine': 'रूटीन के रूप में सहेजें',
+  // workout overview
+  'Nothing added yet.': 'अभी तक कुछ नहीं जोड़ा गया।',
+  'Now': 'अभी',
+  'Show the whole workout': 'पूरा वर्कआउट दिखाएँ',
 }
