@@ -14,6 +14,8 @@ import { buildPlanBundle, parsePlan } from '../lib/plan-share.js'
 import { confirmSheet, planImportSheet, workoutDetailSheet } from '../sheets.jsx'
 import * as T from '../lib/team-api.js'
 import { useTeam } from '../lib/team-api.js'
+import { inactivityNudge } from '../lib/nudge.js'
+import { EXIDX } from '../lib/exercises.js'
 import Icon from '../components/Icon.jsx'
 import { Button, TextField, Segmented } from '../components/ui.jsx'
 
@@ -77,6 +79,10 @@ function MemberRow({ m, onOpen }) {
             ? t(m.week === 1 ? '{0} session this week · last {1}' : '{0} sessions this week · last {1}', m.week, rel(m.last))
             : t('no sessions logged yet')}
       </div>
+      {(() => {
+        const n = !m.live && inactivityNudge(m)
+        return n && <div className="small" style={{ marginTop: 4, color: 'var(--yellow)', lineHeight: 1.35 }}>👀 {n.text}</div>
+      })()}
     </div>
     <div style={{ textAlign: 'right' }}>
       {m.streak > 0 && <div className="row" style={{ gap: 4, justifyContent: 'flex-end', color: 'var(--orange)', fontWeight: 600 }}>
@@ -97,6 +103,7 @@ function MemberSheet({ id, close }) {
   const open = w => workoutDetailSheet(w, { name: d.name, unit: d.unit, customEx: d.customEx })
   return <>
     <h3 className="capitalize">{d.name}</h3>
+    {(() => { const n = inactivityNudge(d); return n && <div className="small" style={{ color: 'var(--yellow)', marginTop: -6 }}>👀 {n.text}</div> })()}
     <div className="tiles" style={{ textAlign: 'left', marginTop: 12 }}>
       <div className="tile"><div className="l">{t('Sessions')}</div><div className="v" style={{ fontSize: '1.3rem' }}>{d.workouts}</div></div>
       <div className="tile"><div className="l">{t('Week streak')}</div><div className="v" style={{ fontSize: '1.3rem' }}>{d.streak}</div></div>
@@ -119,6 +126,79 @@ function MemberSheet({ id, close }) {
     </div> : <div className="empty small">{t('Nothing logged yet.')}</div>}
   </>
 }
+
+
+/* ============================ following a live workout ============================ */
+
+// Ticks locally between polls, so the clock runs smoothly instead of jumping every few seconds.
+function Clock({ since }) {
+  const [, tick] = useState(0)
+  useEffect(() => { const iv = setInterval(() => tick(x => x + 1), 1000); return () => clearInterval(iv) }, [])
+  const sec = Math.max(0, Math.floor((Date.now() - since) / 1000))
+  return <>{Math.floor(sec / 60)}:{String(sec % 60).padStart(2, '0')}</>
+}
+
+/**
+ * Watch a teammate's session as it happens: which exercise they are on and every set so far,
+ * refreshed every few seconds while the sheet is open (and not while the phone is in a pocket).
+ * Their phone sends a set the moment it is ticked, so the delay is the poll, not the workout.
+ */
+function LiveSheet({ id, name }) {
+  const [d, setD] = useState(null)
+  const [gone, setGone] = useState(false)
+  useEffect(() => {
+    let stop = false
+    const load = () => {
+      if (stop || document.visibilityState !== 'visible') return
+      T.getLive(id).then(r => { if (stop) return; setD(r); setGone(!r.live) }).catch(() => {})
+    }
+    load()
+    const iv = setInterval(load, 4000)
+    document.addEventListener('visibilitychange', load)
+    return () => { stop = true; clearInterval(iv); document.removeEventListener('visibilitychange', load) }
+  }, [id])
+
+  const live = d?.live
+  const unit = d?.member?.unit || 'kg'
+  const custom = Object.fromEntries((d?.member?.customEx || []).map(c => [c.id, c]))
+  const exName = exId => (EXIDX[exId] || custom[exId] || {}).n || exId
+  const line = s => (s.min != null ? `${s.min} min${s.speed ? ' @ ' + fmtNum(s.speed) + ' km/h' : ''}`
+    : s.sec != null ? `${s.sec} s${s.w ? ' · ' + fmtNum(s.w) + ' ' + unit : ''}`
+      : `${fmtNum(s.w || 0)} ${unit} × ${s.r || 0}`)
+
+  return <>
+    <div className="row between" style={{ marginBottom: 4 }}>
+      <h3 className="capitalize" style={{ margin: 0 }}>{name}</h3>
+      {live && <span className="tag" style={{ background: 'var(--orange)', color: '#000' }}><Icon name="timer" /> {t('Live')}</span>}
+    </div>
+    {!d ? <div className="muted small">{t('Loading…')}</div>
+      : gone ? <div className="empty small">{t('{0} is not training right now — the workout may just have finished.', name)}</div>
+        : <>
+          <div className="muted small" style={{ marginBottom: 10 }}>
+            {live.name} · <Clock since={live.startedAt} /> · {t('{0} sets', live.setsDone + '/' + live.setsTotal)}
+          </div>
+          <div className="wprog" style={{ marginBottom: 14 }}><i style={{ width: (live.setsTotal ? live.setsDone / live.setsTotal * 100 : 0) + '%' }} /></div>
+          {(live.entries || []).map((e, i) => {
+            const now = i === live.cur
+            const done = e.sets.filter(x => x.done).length
+            const allDone = e.sets.length > 0 && done === e.sets.length
+            return <div key={i} className="card" style={{ marginBottom: 8, padding: '10px 12px',
+              boxShadow: now ? 'inset 0 0 0 1.5px var(--orange)' : undefined, opacity: !now && !done ? .55 : 1 }}>
+              <div className="row between" style={{ marginBottom: now || done ? 6 : 0 }}>
+                <span className="capitalize" style={{ fontWeight: 600 }}>{exName(e.id)}</span>
+                <span className="dim small">{now ? t('now') : allDone ? '✓' : `${done}/${e.sets.length}`}</span>
+              </div>
+              {(now || done > 0) && e.sets.map((x, k) => <div key={k} className="small row between"
+                style={{ color: x.done ? 'var(--label)' : 'var(--label-3)', padding: '2px 0' }}>
+                <span>{t('Set {0}', k + 1)} · {line(x)}</span>
+                {x.done && <Icon name="check" style={{ color: 'var(--acc)', fontSize: 13 }} />}
+              </div>)}
+            </div>
+          })}
+        </>}
+  </>
+}
+const liveSheet = m => ui().openSheet(() => <LiveSheet id={m.id} name={m.name} />)
 
 /* ============================ shared schemes ============================ */
 
@@ -281,7 +361,7 @@ export default function Team() {
   </div>
 
   const rename = () => ui().openSheet(close => <RenameSheet name={team.name} onChanged={adopt} close={close} />)
-  const openMember = m => ui().openSheet(close => <MemberSheet id={m.id} close={close} />)
+  const openMember = m => (m.live && !m.you ? liveSheet(m) : ui().openSheet(close => <MemberSheet id={m.id} close={close} />))
   const openPlan = p => ui().openSheet(close => <PlanSheet plan={p} onChanged={adopt} close={close} />)
   const share = () => ui().openSheet(close => <ShareSheet onChanged={adopt} close={close} />)
 
@@ -300,7 +380,12 @@ export default function Team() {
         <span className="lrow-i" style={{ background: 'var(--orange)' }}><Icon name="timer" /></span>
         <div>
           <div className="lbl2">{t('Training right now')}</div>
-          <div className="ttl capitalize">{liveNow.map(m => m.name).join(', ')}</div>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+            {liveNow.map(m => <button key={m.id} className="chip nocap" onClick={() => liveSheet(m)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+              <b>{m.name}</b> · {t('exercise {0} of {1}', m.live.exIdx || 1, m.live.exTotal || '?')} <Icon name="chevronRight" style={{ fontSize: 11 }} />
+            </button>)}
+          </div>
         </div>
       </div>
     </div>}

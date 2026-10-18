@@ -41,6 +41,7 @@ const kv = http.createServer(async (req, res) => {
     table.set(body.key, { value: body.value, version: body.version ?? (table.get(body.key)?.version ?? 0) + 1 });
     return send(200, [{ key: body.key, ...table.get(body.key) }]);
   }
+  if (req.method === 'DELETE') { table.delete(key); return send(200, []); }
   if (req.method === 'PATCH') {
     const row = table.get(key);
     if (!row || String(row.version) !== eq('version')) return send(200, []);   // compare-and-set miss
@@ -138,4 +139,30 @@ test('a profile syncing while others write does not disturb them', async () => {
   assert.equal(rename.status, 200);
   assert.equal((await call('GET', '/api/team', { cookie: ann })).json.team.name, 'Iron Club');
   assert.equal((await call('GET', '/api/data', { cookie: cookieFor('ben') })).json.state.unit, 'lb');
+});
+
+test('live presence goes through the shared store, so every instance sees it', async () => {
+  const ann = cookieFor('ann');
+  const r = await call('POST', '/api/activity', { cookie: ann, body: {
+    active: true, name: 'Push', exIdx: 1, exTotal: 6, setsDone: 1, setsTotal: 17, startedAt: Date.now(), cur: 0,
+    entries: [{ id: '0314', sets: [{ w: 22, r: 8, done: true }, { w: 22, r: 8, done: false }] }]
+  } });
+  assert.equal(r.status, 200);
+  // In the table — not in this process's memory, which another instance could not read.
+  assert.ok(table.has('v:live:ann'), 'presence is a row in the shared kv table');
+  const seen = await call('GET', '/api/team/live?id=ann', { cookie: cookieFor('ben') });
+  assert.deepEqual(seen.json.live.entries[0].sets.map(s => [s.w, s.r, s.done]), [[22, 8, true], [22, 8, false]]);
+  const list = await call('GET', '/api/team', { cookie: cookieFor('ben') });
+  assert.equal(list.json.team.members.find(m => m.name === 'Ann').live.exIdx, 1);
+  // Ending the workout clears it everywhere.
+  await call('POST', '/api/activity', { cookie: ann, body: { active: false } });
+  assert.equal((await call('GET', '/api/team/live?id=ann', { cookie: cookieFor('ben') })).json.live, null);
+});
+
+test('a heartbeat cannot smuggle in an unbounded payload', async () => {
+  const huge = Array.from({ length: 500 }, (_, i) => ({ id: 'x'.repeat(500) + i, sets: Array.from({ length: 500 }, () => ({ w: 1, r: 1, done: true, junk: 'y'.repeat(100) })) }));
+  await call('POST', '/api/activity', { cookie: cookieFor('cat'), body: { active: true, name: 'z'.repeat(1000), entries: huge } });
+  const live = table.get('v:live:cat').value;
+  assert.ok(live.entries.length <= 40 && live.entries[0].sets.length <= 30 && live.entries[0].id.length <= 64 && live.name.length <= 60);
+  assert.equal('junk' in live.entries[0].sets[0], false);
 });

@@ -135,7 +135,7 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
     name: team.name,
     createdAt: team.createdAt,
     members: await Promise.all(memberUsers().map(async u => {
-      const live = livePresence(u.id);
+      const live = await livePresence(u.id);
       return {
         id: u.id, name: u.name, you: u.id === user.id,
         live: live ? { exIdx: live.exIdx, exTotal: live.exTotal, setsDone: live.setsDone, setsTotal: live.setsTotal, startedAt: live.startedAt } : null,
@@ -255,6 +255,21 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       else notes[exId] = { text, by: ctx.user.id, byName: ctx.user.name, at: Date.now() };
       saveDb();
       json(res, 200, { notes });
+    },
+
+    // Follow a teammate's workout while it is happening: where they are and every set so far.
+    // The team list carries only the summary; this is polled by the screen that follows them.
+    'GET /api/team/live': async (req, res) => {
+      const ctx = requireUser(req, res); if (!ctx) return;
+      const id = new URL(req.url, 'http://x').searchParams.get('id');
+      const u = memberUsers().find(x => x.id === id);
+      if (!u) return json(res, 404, { error: 'no such member' });
+      const live = await livePresence(u.id);
+      const st = live ? ((await readState(u.id)) || {}) : {};
+      json(res, 200, {
+        member: { id: u.id, name: u.name, unit: st.unit === 'lb' ? 'lb' : 'kg', customEx: st.customEx || [] },
+        live
+      });
     },
 
     // One session in full — every exercise and every set — for a row tapped in the activity

@@ -368,18 +368,33 @@ function readBody(req) {
   });
 }
 
-/* ---------- live presence (in-memory) ---------- */
-// Clients heartbeat /api/activity while a workout is on screen; the admin dashboard reads who's
-// live. Purely ephemeral — never persisted. Expires shortly after the last ping.
-const presence = new Map();               // uid -> { name, exIdx, exTotal, setsDone, setsTotal, startedAt, updatedAt }
-const PRESENCE_TTL = 70000;               // ~3.5× the 20s client heartbeat
-function livePresence(uid) {
-  const p = presence.get(uid);
-  if (!p) return null;
-  if (Date.now() - p.updatedAt > PRESENCE_TTL) { presence.delete(uid); return null; }
+/* ---------- live presence ----------
+   Clients heartbeat /api/activity while a workout is open: where they are, and the sets of the
+   session so far, so teammates can follow along. It used to live in this process's memory,
+   which on a serverless host means each instance knew only about the pings that happened to
+   land on it — "training now" came and went depending on which instance answered. It is kept
+   in the shared store instead, and simply goes stale when the pings stop. */
+const PRESENCE_TTL = 70000;               // ~3.5x the 20s idle heartbeat
+const liveKey = uid => 'live:' + uid;
+async function livePresence(uid) {
+  const p = await store.getValue(liveKey(uid)).catch(() => null);
+  if (!p || Date.now() - p.updatedAt > PRESENCE_TTL) return null;
   return p;
 }
-setInterval(() => { for (const [k, v] of presence) if (Date.now() - v.updatedAt > PRESENCE_TTL) presence.delete(k); }, 30000).unref();
+const num = v => (Number.isFinite(+v) ? +v : 0);
+/** Keep only what a follower needs from a heartbeat, bounded, so a ping cannot carry a payload. */
+function liveSession(body) {
+  const entries = (Array.isArray(body.entries) ? body.entries : []).slice(0, 40).map(e => ({
+    id: String(e?.id ?? '').slice(0, 64),
+    sets: (Array.isArray(e?.sets) ? e.sets : []).slice(0, 30).map(x => {
+      const o = { done: !!x?.done };
+      for (const k of ['w', 'r', 'min', 'speed', 'sec']) if (x?.[k] != null) o[k] = num(x[k]);
+      return o;
+    }),
+    ...(e?.target ? { target: { reps: num(e.target.reps), repsMin: num(e.target.repsMin), mode: String(e.target.mode || '').slice(0, 10) } } : {})
+  }));
+  return { cur: Math.max(0, Math.min(entries.length - 1, num(body.cur))), entries };
+}
 
 /* ---------- routes ---------- */
 export const routes = {
@@ -542,14 +557,15 @@ export const routes = {
     if (!user) return json(res, 401, { error: 'not signed in' });
     const body = await readBody(req);
     if (body.active) {
-      presence.set(user.id, {
+      await store.setValue(liveKey(user.id), {
         name: String(body.name || '').slice(0, 60),
-        exIdx: +body.exIdx || 0, exTotal: +body.exTotal || 0,
-        setsDone: +body.setsDone || 0, setsTotal: +body.setsTotal || 0,
-        startedAt: +body.startedAt || Date.now(),
+        exIdx: num(body.exIdx), exTotal: num(body.exTotal),
+        setsDone: num(body.setsDone), setsTotal: num(body.setsTotal),
+        startedAt: num(body.startedAt) || Date.now(),
+        ...liveSession(body),
         updatedAt: Date.now()
       });
-    } else presence.delete(user.id);
+    } else await store.setValue(liveKey(user.id), null);
     json(res, 200, { ok: true });
   },
 
@@ -570,7 +586,7 @@ export const routes = {
         lastWorkout: last ? last.d : null,
         lastSync: S._ts || null,
         hasPush: db.subs.some(s => s.userId === u.id),
-        live: livePresence(u.id)
+        live: await livePresence(u.id)
       };
     }));
     json(res, 200, { users, now: Date.now() });
@@ -600,7 +616,7 @@ export const routes = {
     if (!u) return json(res, 404, { error: 'no such user' });
     if (isAdmin(u)) return json(res, 400, { error: 'cannot disable an admin' });
     u.disabled = !!body.disabled;
-    if (u.disabled) presence.delete(u.id);   // drop them off "training now" at once
+    if (u.disabled) await store.setValue(liveKey(u.id), null).catch(() => {});   // drop them off "training now" at once
     saveDb();
     json(res, 200, { ok: true, id: u.id, disabled: u.disabled });
   },

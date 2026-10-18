@@ -291,3 +291,24 @@ test('a feed row opens the full session: every exercise and every set', async ()
   assert.equal((await h.as(b).call('GET /api/team/workout', null, 'uid=ghost&id=w9')).code, 404);
   assert.equal((await h.as(null).call('GET /api/team/workout', null, 'uid=u1&id=w9')).code, 401);
 });
+
+test("following a teammate's live workout shows every set so far, in their unit", async () => {
+  const h = harness();
+  const a = h.add('u1', 'Ann', { ...sampleState({ unit: 'lb' }),
+    _live: { name: 'Push', exIdx: 2, exTotal: 5, cur: 1, startedAt: 1, updatedAt: Date.now(),
+      entries: [{ id: '0314', sets: [{ w: 50, r: 8, done: true }] }, { id: '0603', sets: [{ w: 40, r: 10, done: false }] }] } });
+  const b = h.add('u2', 'Ben');
+  const r = await h.as(b).call('GET /api/team/live', null, 'id=u1');
+  assert.equal(r.code, 200);
+  assert.equal(r.body.member.unit, 'lb');
+  assert.equal(r.body.live.cur, 1);
+  assert.deepEqual(r.body.live.entries[0].sets, [{ w: 50, r: 8, done: true }]);
+});
+
+test('following someone who is not training says so instead of erroring', async () => {
+  const h = harness(); h.add('u1', 'Ann'); const b = h.add('u2', 'Ben');
+  const r = await h.as(b).call('GET /api/team/live', null, 'id=u1');
+  assert.equal(r.code, 200);
+  assert.equal(r.body.live, null);
+  assert.equal((await h.as(b).call('GET /api/team/live', null, 'id=ghost')).code, 404);
+});
