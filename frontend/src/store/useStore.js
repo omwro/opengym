@@ -4,6 +4,7 @@ import { localTZ } from '../lib/format.js'
 import { registerCustom } from '../lib/exercises.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
 import { MOBILE, nativeLoad, nativeSave, syncReminder } from '../lib/mobile.js'
+import { syncPush } from '../lib/push.js'
 
 const KEY = 'gym_state_v1'
 export const DEF = {
@@ -194,6 +195,9 @@ export const useStore = create((set, get) => {
         const me = await api('/api/me')
         get().setUser(me.user)
         await get().pullState()
+        // Re-register this device's push subscription with the server on every start, so a
+        // dropped, rotated or wrong-key subscription heals itself instead of silently failing.
+        syncPush()
         // Re-stamp the reminder's timezone on every load — keeps it correct if you're travelling,
         // without needing to revisit Settings.
         const tz = localTZ()

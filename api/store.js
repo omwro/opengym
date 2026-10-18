@@ -92,6 +92,7 @@ function fsBackend() {
     fs.renameSync(tmp, f);
   };
   const readJSON = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
+  const mem = new Map();
   // The filename openGym has always used, so an existing ./data directory is picked up as-is.
   const stateFile = uid => file('state-' + safeUid(uid) + '.json');
 
@@ -117,6 +118,10 @@ function fsBackend() {
       return 0;   // one process owns the file; there is no version to move
     },
     async readState(uid) { return readJSON(stateFile(uid)); },
+    // Short-lived values such as a pending rest timer. One process owns this backend, so
+    // memory is the shared place; they do not need to survive a restart.
+    async getValue(key) { return mem.has(key) ? mem.get(key) : null; },
+    async setValue(key, value) { if (value == null) mem.delete(key); else mem.set(key, value); },
     async writeState(uid, state) { atomicWrite(stateFile(uid), JSON.stringify(state)); },
     async listStates() {
       return fs.readdirSync(DATA)
@@ -215,6 +220,14 @@ function supabaseBackend() {
       return version + 1;
     },
     async readState(uid) { return (await get(stateKey(uid)))?.value ?? null; },
+    // Short-lived values (a pending rest timer). In the table rather than in memory because the
+    // request that cancels a timer may land on a different instance from the one waiting on it.
+    async getValue(key) { return (await get('v:' + key))?.value ?? null; },
+    async setValue(key, value) {
+      if (READ_ONLY) throw new ReadOnlyError('write a shared value');
+      if (value == null) { await req(`${base}?key=eq.${encodeURIComponent('v:' + key)}`, { method: 'DELETE' }); return; }
+      await put('v:' + key, value);
+    },
     async writeState(uid, state) {
       if (READ_ONLY) throw new ReadOnlyError("write a profile's training data");
       await put(stateKey(uid), state);

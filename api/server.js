@@ -115,45 +115,88 @@ const readState = uid => store.readState(uid);
 
 /* ---------- push notifications (Web Push / VAPID) ---------- */
 let vapid = await store.vapid(() => webpush.generateVAPIDKeys());
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || (SECURE ? ORIGIN : 'mailto:admin@localhost');
+// The VAPID "subject" identifies who is sending. Apple's push service — the only route to an
+// iPhone — refuses anything that is not a real https URL or a plausible mailto, and
+// `mailto:admin@localhost` is exactly what this fell back to on a deployment without ORIGIN
+// set: every push to iOS was rejected (403 BadJwtToken) while Android quietly accepted it.
+// So: an explicit setting, else the deployment's own https address, else the project page.
+function vapidSubject() {
+  if (process.env.VAPID_SUBJECT) return process.env.VAPID_SUBJECT;
+  if (/^https:\/\//i.test(ORIGIN) && !/localhost|127\.0\.0\.1/.test(ORIGIN)) return ORIGIN;
+  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+  if (host) return 'https://' + host;
+  return 'https://github.com/alexpcosta/opengym';
+}
+const VAPID_SUBJECT = vapidSubject();
 webpush.setVapidDetails(VAPID_SUBJECT, vapid.publicKey, vapid.privateKey);
 
-async function sendPush(userId, payload) {
+/**
+ * Send to every device the profile has subscribed. Returns what happened per device, because
+ * "sent" is a claim the push service makes, not the server: a refused push used to vanish into
+ * a log line while the app reported success.
+ */
+async function sendPush(userId, payload, { ttl } = {}) {
   const subs = db.subs.filter(s => s.userId === userId);
-  if (!subs.length) return;
+  if (!subs.length) return [];
   const body = JSON.stringify(payload);
   let dirty = false;
-  await Promise.all(subs.map(async sub => {
-    // urgency 'high' is the one lever we have over delivery speed — iOS/Android throttle
-    // low-urgency background push more aggressively under battery-saving modes. TTL is left
-    // at the library default (long) so a briefly-offline device still gets it once reconnected,
-    // rather than risking it being dropped for the sake of shaving off latency that TTL doesn't
-    // actually control anyway.
-    try { await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, body, { urgency: 'high' }); }
-    catch (e) {
-      console.error('push send failed', userId, e.statusCode, e.body || e.message);
+  const results = await Promise.all(subs.map(async sub => {
+    const host = (() => { try { return new URL(sub.endpoint).host; } catch { return '?'; } })();
+    // urgency 'high' is the one lever over delivery speed — iOS and Android both throttle
+    // low-urgency background push under battery saving. A TTL is set for time-bound messages:
+    // "rest over" an hour late is noise, so it is allowed to expire instead.
+    try {
+      await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, body,
+        { urgency: 'high', ...(ttl ? { TTL: ttl } : {}) });
+      return { ok: true, host };
+    } catch (e) {
+      console.error('push send failed', userId, host, e.statusCode, e.body || e.message);
+      // 404/410: the subscription is gone (app removed, permission revoked) — forget it.
       if (e.statusCode === 404 || e.statusCode === 410) {
         db.subs = db.subs.filter(s => s.endpoint !== sub.endpoint); dirty = true;
       }
+      return { ok: false, host, status: e.statusCode || null, reason: String(e.body || e.message || '').slice(0, 200) };
     }
   }));
   if (dirty) saveDb();
+  return results;
 }
 
 // Rest-timer alerts: client schedules on start/extend, cancels on skip or on-screen completion —
 // this only fires when the tab was backgrounded/suspended and never got to cancel it itself.
-const restTimers = new Map(); // userId -> Timeout
-function scheduleRestTimer(userId, sec) {
-  const t = restTimers.get(userId);
-  if (t) clearTimeout(t);
-  restTimers.set(userId, setTimeout(() => {
-    restTimers.delete(userId);
-    sendPush(userId, { title: 'Rest over 💪', body: 'Time for your next set.', tag: 'rest-timer' });
-  }, sec * 1000));
+// Work that has to happen *after* the response. In a long-lived process that is just a
+// promise. On Vercel the function is frozen the moment it responds — which is why the old
+// setTimeout-based rest timer never fired in production — unless the platform is told to wait,
+// which is what its request context's waitUntil is for.
+const vercelContext = () => { try { return globalThis[Symbol.for('@vercel/request-context')]?.get?.(); } catch { return null; } };
+function defer(promise) {
+  const guarded = promise.catch(e => console.error('deferred work failed', e));
+  const ctx = vercelContext();
+  if (ctx?.waitUntil) { ctx.waitUntil(guarded); return 'platform'; }
+  if (SERVERLESS) console.warn('deferred work without waitUntil — it may not complete');
+  return SERVERLESS ? 'unsupported' : 'process';
 }
-function cancelRestTimer(userId) {
-  const t = restTimers.get(userId);
-  if (t) { clearTimeout(t); restTimers.delete(userId); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+/* ---------- rest-timer push ----------
+   The page's own timer stops as soon as the phone backgrounds it — immediately on iOS, within
+   seconds on a stock Pixel, much later on a Samsung, which is why it only ever "worked" there.
+   So the server sends the push. Each schedule writes a token to the shared store and waits;
+   when it wakes it fires only if that token is still current, so a skip or a "+15s" handled by
+   a different instance cancels or replaces it correctly. */
+const restKey = uid => 'rest:' + uid;
+async function scheduleRestTimer(userId, sec) {
+  const token = crypto.randomBytes(8).toString('hex');
+  await store.setValue(restKey(userId), { token, endsAt: Date.now() + sec * 1000 });
+  return defer((async () => {
+    await sleep(sec * 1000);
+    const cur = await store.getValue(restKey(userId));
+    if (!cur || cur.token !== token) return;          // skipped, or replaced by a newer timer
+    await store.setValue(restKey(userId), null);
+    await sendPush(userId, { title: 'Rest over 💪', body: 'Time for your next set.', tag: 'rest-timer', url: '#/workout' }, { ttl: 120 });
+  })());
+}
+async function cancelRestTimer(userId) {
+  await store.setValue(restKey(userId), null);
 }
 
 // "Workout planned today" reminder — one per user per day, at their chosen time.
@@ -470,8 +513,10 @@ export const routes = {
   'POST /api/push/test': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
-    await sendPush(user.id, { title: 'openGym', body: 'Test notification ✅ — this is what alerts look like.', tag: 'test' });
-    json(res, 200, { ok: true });
+    const results = await sendPush(user.id, { title: 'openGym', body: 'Test notification ✅ — this is what alerts look like.', tag: 'test' }, { ttl: 60 });
+    // Report what the push services actually said, so a refusal is visible on the phone that
+    // did not get anything instead of only in a server log.
+    json(res, 200, { ok: results.some(r => r.ok), devices: results.length, results });
   },
 
   'POST /api/push/rest-timer': async (req, res) => {
@@ -480,14 +525,14 @@ export const routes = {
     const body = await readBody(req);
     const sec = Math.max(1, Math.min(3600, Math.round(+body.seconds || 0)));
     if (!sec) return json(res, 400, { error: 'seconds required' });
-    scheduleRestTimer(user.id, sec);
-    json(res, 200, { ok: true });
+    const how = await scheduleRestTimer(user.id, sec);
+    json(res, 200, { ok: true, delivery: how });
   },
 
   'POST /api/push/rest-timer/cancel': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
-    cancelRestTimer(user.id);
+    await cancelRestTimer(user.id);
     json(res, 200, { ok: true });
   },
 

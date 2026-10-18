@@ -3,9 +3,11 @@
 // Two things the gym needs from a beep: it has to be heard over music, and it should make the
 // music step aside for a moment rather than compete with it.
 //
-// Loudness: a soft-clipped tone near full scale, in the 1–3 kHz band where the ear is most
-// sensitive and where music on earbuds leaves the most room. The old pure sine at 35% gain was
-// the polite version of this and disappeared under a playlist.
+// Character: a chime, not an alarm. A flat tone that stops dead, heavily clipped, repeated on
+// one pitch is what makes a beep sound like a warning. Here each note strikes and then decays
+// like a small bell, the timbre is a clean fundamental with soft overtones, and the final cue
+// is a rising major chord — "done", not "danger". It still sits in the 0.8–1.6 kHz range where
+// the ear is most sensitive and music leaves room, and is normalised to near full scale.
 //
 // Ducking: a web page cannot hold audio focus directly, but the platforms will do it for short
 // sounds played the right way:
@@ -33,6 +35,10 @@ export function beep(enabled, freq, dur, when) {
 function flush() {
   const parts = pending; pending = []; scheduled = false
   if (!parts.length) return
+  play(parts)
+}
+
+function play(parts) {
   claimTransientAudio()
   const url = clipUrl(parts)
   try {
@@ -40,7 +46,43 @@ function flush() {
     a.volume = 1
     const p = a.play()
     if (p && p.catch) p.catch(() => webAudioFallback(parts))
-  } catch { webAudioFallback(parts) }
+    return a
+  } catch { webAudioFallback(parts); return null }
+}
+
+/* ---------- the end-of-rest countdown, as one clip ----------
+   Ducking lasts exactly as long as our audio is playing. Played as separate clips, the 3-2-1
+   beeps let the music come back up to full volume in every gap between them — exactly the
+   moment you are listening for the next beep. So the whole countdown, gaps included, is one
+   clip: the music stays down from the first beep until the last one has rung out.
+
+   Kept under five seconds on purpose — Android treats longer media as something to pause the
+   music for rather than to duck under. */
+// C6 – E6 – G6: a rising major chord reads as "done". Each note rings longer than the gap to
+// the next, so they blend into one chime instead of three separate beeps.
+export const FINAL = [{ freq: 1047, dur: 0.45, at: 0 }, { freq: 1319, dur: 0.45, at: 0.14 }, { freq: 1568, dur: 0.7, at: 0.28 }]
+// A short, soft G5 for 3-2-1: noticeable, not insistent.
+export const TICK = { freq: 784, dur: 0.22 }
+
+/** The finishing chime on its own, for when no countdown clip carried it. */
+export function chime(enabled) { for (const f of FINAL) beep(enabled, f.freq, f.dur, f.at) }
+
+/** The parts of a countdown clip that ends `endsIn` seconds from now. */
+export function countdownParts(endsIn) {
+  const parts = []
+  for (const k of [3, 2, 1]) {
+    const when = endsIn - k
+    if (when >= -0.05) parts.push({ freq: TICK.freq, dur: TICK.dur, when: Math.max(0, when) })
+  }
+  for (const f of FINAL) parts.push({ freq: f.freq, dur: f.dur, when: Math.max(0, endsIn) + f.at })
+  return parts
+}
+
+/** Play the countdown for a timer ending `endsIn` seconds from now; returns a stop handle. */
+export function countdown(enabled, endsIn) {
+  if (!enabled) return { stop() {} }
+  const a = play(countdownParts(endsIn))
+  return { stop() { try { if (a) { a.pause(); a.currentTime = 0 } } catch { /* */ } } }
 }
 
 /** iOS: ask for the session type that ducks other audio. Harmless where unsupported. */
@@ -61,22 +103,25 @@ function clipUrl(parts) {
 }
 
 export function renderSamples(parts) {
-  const end = Math.max(...parts.map(p => p.when + p.dur)) + 0.04
+  const end = Math.max(...parts.map(p => p.when + p.dur)) + 0.05
   const out = new Float32Array(Math.ceil(end * RATE))
   for (const { freq, dur, when } of parts) {
     const start = Math.floor(when * RATE)
     const n = Math.floor(dur * RATE)
-    const attack = Math.floor(0.006 * RATE), release = Math.floor(0.03 * RATE)
+    const attack = Math.floor(0.008 * RATE)        // soft strike, no click
+    const tau = dur * 0.38                          // bell-like decay over the note
+    const tail = Math.floor(0.012 * RATE)           // fade the last few ms so it never clips off
     for (let i = 0; i < n && start + i < out.length; i++) {
-      const env = i < attack ? i / attack : i > n - release ? Math.max(0, (n - i) / release) : 1
-      const ph = 2 * Math.PI * freq * (i / RATE)
-      // fundamental plus a touch of the octave, then soft-clipped: louder and brighter than a
-      // pure sine at the same peak, without the harshness of a raw square wave
-      const raw = Math.sin(ph) + 0.35 * Math.sin(2 * ph)
-      out[start + i] += Math.tanh(2.2 * raw) * env
+      const sec = i / RATE
+      let env = Math.exp(-sec / tau)
+      if (i < attack) env *= i / attack
+      if (i > n - tail) env *= Math.max(0, (n - i) / tail)
+      const ph = 2 * Math.PI * freq * sec
+      // clean fundamental, a soft octave and a faint twelfth: warm, chime-like, not buzzy
+      const raw = Math.sin(ph) + 0.28 * Math.sin(2 * ph) + 0.08 * Math.sin(3 * ph)
+      out[start + i] += Math.tanh(1.3 * raw) * env
     }
   }
-  // normalise to just under full scale
   let peak = 0
   for (const v of out) peak = Math.max(peak, Math.abs(v))
   const k = peak > 0 ? 0.95 / peak : 0

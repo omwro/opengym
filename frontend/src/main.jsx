@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { clearNotifications } from './lib/push.js'
 import App from './App.jsx'
 import { MOBILE } from './lib/mobile.js'
 import './index.css'
@@ -11,4 +12,9 @@ createRoot(document.getElementById('root')).render(
 // Not in the mobile build: the native shell already serves everything from disk.
 if (!MOBILE && 'serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {})
+  // A "rest over" notification is pointless once you are back in the app — clear it on open
+  // and every time the app returns to the foreground.
+  const clearRest = () => { if (document.visibilityState === 'visible') clearNotifications('rest-timer') }
+  clearRest()
+  document.addEventListener('visibilitychange', clearRest)
 }

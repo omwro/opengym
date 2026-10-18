@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { uid } from '../lib/format.js'
-import { beep, vibrate } from '../lib/sound.js'
+import { beep, vibrate, countdown, chime } from '../lib/sound.js'
+import { clearNotifications } from '../lib/push.js'
 import { api } from '../lib/api.js'
 import { t } from '../lib/i18n.js'
 import { useStore } from './useStore.js'
@@ -13,6 +14,8 @@ const cancelPushRestTimer = () => { if (useStore.getState().user) api('/api/push
 let toastTm = null
 let timerInt = null
 let timerTick = null
+let restCountdown = null
+let workCountdown = null
 let workInt = null
 let workTick = null
 let workDone = null
@@ -46,17 +49,25 @@ export const useUI = create((set, get) => ({
     timerTick = () => {
       const tm = get().timer
       if (!tm) return
-      const left = Math.max(0, Math.round((tm.endsAt - Date.now()) / 1000))
-      if (left === tm.left) return
       const snd = useStore.getState().S.sound
+      const remaining = (tm.endsAt - Date.now()) / 1000
+      // Start the whole countdown as one clip as soon as it is due, so the music stays ducked
+      // through the gaps. It carries the final beep too, which is then not played again.
+      if (!restCountdown && remaining <= 3.5 && remaining > 0.3) restCountdown = countdown(snd, remaining)
+      const left = Math.max(0, Math.round(remaining))
+      if (left === tm.left) return
       if (left <= 0) {
-        beep(snd, 880, 0.15); beep(snd, 880, 0.15, 0.25); beep(snd, 1320, 0.4, 0.5)
-        vibrate([200, 100, 200]); get().toast(t('Rest over — next set!')); get().stopRest(); return
+        if (!restCountdown) chime(snd)
+        restCountdown = null       // let it ring out; stopRest below must not cut it off
+        vibrate([200, 100, 200]); get().toast(t('Rest over — next set!')); get().stopRest()
+        // The server push can land at the same moment even though the page is on screen (the
+        // cancel races it). A push has to show a notification, so tidy it away just after.
+        if (document.visibilityState === 'visible') { setTimeout(() => clearNotifications('rest-timer'), 3000); setTimeout(() => clearNotifications('rest-timer'), 9000) }
+        return
       }
-      if (left <= 3) beep(snd, 660, 0.1)
       set({ timer: { ...tm, left } })
     }
-    timerInt = setInterval(timerTick, 1000)
+    timerInt = setInterval(timerTick, 250)
     document.addEventListener('visibilitychange', timerTick)
   },
   addRest(sec) {
@@ -66,10 +77,14 @@ export const useUI = create((set, get) => ({
     // taking off more than is left means "I'm ready now" — same as skipping, and it keeps a
     // negative duration out of both the progress bar and the server-side push schedule
     if (left <= 0) { get().stopRest(); return }
+    // The end moved, so a countdown already playing is now counting to the wrong moment.
+    restCountdown?.stop(); restCountdown = null
     set({ timer: { ...tm, left, total: tm.total + sec, endsAt: tm.endsAt + sec * 1000 } })
     pushRestTimer(left)
   },
   stopRest() {
+    // Skipping mid-countdown silences it; a countdown that reached zero was released above.
+    restCountdown?.stop(); restCountdown = null
     if (timerInt) clearInterval(timerInt); timerInt = null
     if (timerTick) document.removeEventListener('visibilitychange', timerTick); timerTick = null
     if (get().timer) cancelPushRestTimer()
@@ -94,21 +109,23 @@ export const useUI = create((set, get) => ({
     workTick = () => {
       const wk = get().work
       if (!wk) return
-      const left = Math.max(0, Math.round((wk.endsAt - Date.now()) / 1000))
-      if (left === wk.left) return
       const snd = useStore.getState().S.sound
+      const remaining = (wk.endsAt - Date.now()) / 1000
+      if (!workCountdown && remaining <= 3.5 && remaining > 0.3) workCountdown = countdown(snd, remaining)
+      const left = Math.max(0, Math.round(remaining))
+      if (left === wk.left) return
       if (left <= 0) {
-        beep(snd, 880, 0.15); beep(snd, 880, 0.15, 0.25); beep(snd, 1320, 0.4, 0.5)
+        if (!workCountdown) chime(snd)
+        workCountdown = null
         vibrate([200, 100, 200])
         const done = workDone
         get().stopWork()
         if (done) done(wk.total)
         return
       }
-      if (left <= 3) beep(snd, 660, 0.1)
       set({ work: { ...wk, left } })
     }
-    workInt = setInterval(workTick, 1000)
+    workInt = setInterval(workTick, 250)
     document.addEventListener('visibilitychange', workTick)
   },
   // Ended the hold early — log what was actually held.
@@ -123,6 +140,7 @@ export const useUI = create((set, get) => ({
   },
   // Abandon without logging anything.
   stopWork() {
+    workCountdown?.stop(); workCountdown = null      // ended early mid-countdown: silence it
     if (workInt) clearInterval(workInt); workInt = null
     if (workTick) document.removeEventListener('visibilitychange', workTick); workTick = null
     workDone = null

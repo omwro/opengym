@@ -4,13 +4,16 @@
     {
       "src": "frontend/package.json",
       "use": "@vercel/static-build",
-      "config": { "distDir": "dist" }
+      "config": {
+        "distDir": "dist"
+      }
     },
     {
       "src": "api/index.js",
       "use": "@vercel/node",
       "config": {
-        "excludeFiles": "api/node_modules/{@anthropic-ai,@openai,@modelcontextprotocol}/**"
+        "excludeFiles": "api/node_modules/{@anthropic-ai,@openai,@modelcontextprotocol}/**",
+        "maxDuration": 300
       }
     }
   ],

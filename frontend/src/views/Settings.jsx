@@ -5,7 +5,7 @@ import { useUI } from '../store/useUI.js'
 import { ACCENTS, todayISO, localTZ } from '../lib/format.js'
 import { effortOf } from '../lib/history.js'
 import { createProfile, IS_ANDROID } from '../lib/api.js'
-import { pushSupported, enablePush, disablePush, sendTestPush } from '../lib/push.js'
+import { pushSupported, pushUnavailableReason, enablePush, disablePush, sendTestPush } from '../lib/push.js'
 import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
 import { DEMO, REPO } from '../lib/demo.js'
@@ -313,14 +313,26 @@ function PushCard({ S, update, toast }) {
     } catch (e) { toast(e.message || t('Could not change notification settings')) }
     setBusy(false)
   }
+  // Says what the push service actually answered. "Sent" used to be reported even when Apple
+  // or Google refused the message, which is how a broken setup looked fine from the app.
   const test = async () => {
-    try { await sendTestPush(); toast(t('Test sent — should arrive any second')) }
-    catch (e) { toast(e.message || t('Test failed')) }
+    try {
+      const r = await sendTestPush()
+      if (!r.devices) toast(t('This profile has no device subscribed — switch notifications off and on again'))
+      else if (r.ok) toast(t('Test sent — should arrive any second'))
+      else {
+        const f = r.results.find(x => !x.ok)
+        toast(t('The push service refused it ({0}) — switch notifications off and on again', [f.status, f.host].filter(Boolean).join(' · ')))
+      }
+    } catch (e) { toast(e.message || t('Test failed')) }
   }
 
+  const why = pushUnavailableReason()
   if (!supported) return (
-    <Section title={t('Notifications')}>
-      <Row icon="bellSlash" iconTint="var(--grey)" title={t('Not supported in this browser.')} />
+    <Section title={t('Notifications')}
+      footer={why === 'ios-install' ? t('On iPhone, notifications only work in the installed app: tap Share → Add to Home Screen, open openGym from the home screen, then switch them on here.') : null}>
+      <Row icon="bellSlash" iconTint="var(--grey)"
+        title={why === 'ios-install' ? t('Add openGym to your Home Screen first') : t('Not supported in this browser.')} />
     </Section>
   )
 
