@@ -1,11 +1,11 @@
 // A friendly jab for a teammate who has gone quiet. Two steps: from 72 hours (three calendar
 // days — workouts carry a date, not a time) a plain mention in the normal text colour, and
-// after more than a week the loud one.
+// after more than six days the loud one.
 import { todayISO } from './format.js'
 
 export const NUDGE = 'Check zijn pols! Mogelijk is hij dood, of hij is WEAK!'
 export const MILD_DAYS = 3
-export const STRONG_DAYS = 7
+export const STRONG_DAYS = 6
 export const mildText = days => `Al ${days} dagen niet getraind.`
 
 const daysSince = iso => Math.round((new Date(todayISO() + 'T00:00:00') - new Date(iso + 'T00:00:00')) / 86400000)

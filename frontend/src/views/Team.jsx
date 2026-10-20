@@ -16,7 +16,7 @@ import * as T from '../lib/team-api.js'
 import { useTeam } from '../lib/team-api.js'
 import { inactivityNudge } from '../lib/nudge.js'
 
-// The 72-hour mention reads as ordinary text; only a week of silence gets the yellow and the eyes.
+// The 72-hour mention reads as ordinary text; only more than six days of silence gets the yellow and the eyes.
 const nudgeStyle = n => (n.level === 'strong' ? { color: 'var(--yellow)' } : { color: 'var(--label)' })
 const nudgeText = n => (n.level === 'strong' ? '👀 ' + n.text : n.text)
 import { EXIDX } from '../lib/exercises.js'
