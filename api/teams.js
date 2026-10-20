@@ -19,6 +19,11 @@ const MAX_PLANS = 30;
 const NOTE_MAX = 500;
 const NAME_MAX = 40;
 const DEFAULT_NAME = 'The team';
+// "Wake him up!": a push to a teammate who has gone quiet. Only once they have had no workout
+// for six days — the same moment the client's loud nudge appears — and at most once per
+// 12 hours per person, from anyone, so a whole team cannot take turns spamming one phone.
+const POKE_AFTER_DAYS = 6;
+const POKE_COOLDOWN_MS = 12 * 3600000;
 
 const dayMs = 86400000;
 const isoOf = d => new Date(d).toISOString().slice(0, 10);
@@ -95,7 +100,10 @@ async function feed(members, readState, limit) {
   return items.slice(0, limit);
 }
 
-export function teamRoutes({ json, readBody, readSession, saveDb, db, readState, livePresence }) {
+/** Days since a member's last workout date, or null for someone who never logged one. */
+const daysSinceISO = last => (last ? Math.round((Date.parse(isoOf(Date.now())) - Date.parse(last)) / dayMs) : null);
+
+export function teamRoutes({ json, readBody, readSession, saveDb, db, readState, livePresence, sendPush = async () => [] }) {
   /**
    * The one team. Created on first read rather than at boot, so a fresh instance carries no
    * team record until somebody actually looks.
@@ -131,6 +139,12 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
     return { user, team: theTeam() };
   }
 
+  // The last poke on someone, for the button's cooldown: who and when, nothing more.
+  const pokeOf = (team, uid) => {
+    const p = team.pokes?.[uid];
+    return p && Date.now() - p.at < POKE_COOLDOWN_MS ? { byName: p.byName, at: p.at, next: p.at + POKE_COOLDOWN_MS } : null;
+  };
+
   const publicTeam = async (team, user) => ({
     name: team.name,
     createdAt: team.createdAt,
@@ -139,6 +153,7 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       return {
         id: u.id, name: u.name, you: u.id === user.id,
         live: live ? { exIdx: live.exIdx, exTotal: live.exTotal, setsDone: live.setsDone, setsTotal: live.setsTotal, startedAt: live.startedAt } : null,
+        poke: pokeOf(team, u.id),
         ...summarize(await readState(u.id))
       };
     })),
@@ -289,6 +304,35 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       });
     },
 
+    // Wake a quiet teammate up with a push. Refused for yourself, for someone who trained in
+    // the last six days (or never has — new is not missing), and inside the 12-hour cooldown.
+    // A poke that reached no device does not count: the cooldown is only spent once a push
+    // service has actually taken it, so "they have notifications off" can be said and retried.
+    'POST /api/team/poke': async (req, res) => {
+      const ctx = requireUser(req, res); if (!ctx) return;
+      const body = await readBody(req);
+      const u = memberUsers().find(x => x.id === body.id);
+      if (!u) return json(res, 404, { error: 'no such member' });
+      if (u.id === ctx.user.id) return json(res, 400, { error: 'you cannot wake yourself up' });
+      const days = daysSinceISO(summarize(await readState(u.id)).last);
+      if (days == null || days < POKE_AFTER_DAYS) return json(res, 400, { error: 'not inactive long enough', days });
+      const prev = pokeOf(ctx.team, u.id);
+      if (prev) return json(res, 429, { error: 'already woken up recently', poke: prev });
+      const results = await sendPush(u.id, {
+        title: '⏰ Wake up!',
+        body: `${ctx.user.name} probeert je wakker te maken! Al ${days} dagen geen workout 💤`,
+        tag: 'poke',
+        url: '#/home'
+      }, { ttl: 12 * 3600 });
+      const delivered = results.some(r => r.ok);
+      if (delivered) {
+        ctx.team.pokes = ctx.team.pokes || {};
+        ctx.team.pokes[u.id] = { by: ctx.user.id, byName: ctx.user.name, at: Date.now() };
+        saveDb();
+      }
+      json(res, 200, { ok: delivered, devices: results.length, poke: pokeOf(ctx.team, u.id) });
+    },
+
     // One member's training in full, for the profile screen behind a name in the feed.
     'GET /api/team/member': async (req, res) => {
       const ctx = requireUser(req, res); if (!ctx) return;
@@ -299,6 +343,7 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       json(res, 200, {
         member: {
           id: u.id, name: u.name, you: u.id === ctx.user.id,
+          poke: pokeOf(ctx.team, u.id),
           ...summarize(st),
           // Enough for the charts on a member page, and nothing that isn't training:
           // no settings, no push subscriptions, no Coach state.
@@ -318,4 +363,4 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
   };
 }
 
-export const _internals = { summarize, weekKey, feed };
+export const _internals = { summarize, weekKey, feed, POKE_AFTER_DAYS, POKE_COOLDOWN_MS };

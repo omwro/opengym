@@ -630,7 +630,7 @@ export const routes = {
   /* ---------- Teams ---------- */
   // Shared schemes + a shared view of everyone's training. Like the Coach routes these
   // are closures over db and the session helpers rather than importers of them.
-  ...teamRoutes({ json, readBody, readSession, saveDb, db, readState, livePresence })
+  ...teamRoutes({ json, readBody, readSession, saveDb, db, readState, livePresence, sendPush })
 };
 
 /* ---------- Coach: boot recovery, notifications, scheduled reviews ---------- */

@@ -14,7 +14,8 @@ function harness() {
   const ctx = {
     db, states,
     add(id, name, state) { db.users.push({ id, name }); if (state) states.set(id, state); return db.users.at(-1); },
-    saves: () => saves
+    saves: () => saves,
+    pushes: [], devices: [true]
   };
   let caller = null;
   ctx.as = u => { caller = u; return ctx; };
@@ -25,7 +26,9 @@ function harness() {
     readSession: () => caller,
     saveDb: () => { saves++; },
     readState: uid => states.get(uid) || null,
-    livePresence: uid => states.get(uid)?._live || null
+    livePresence: uid => states.get(uid)?._live || null,
+    // Records every push; `ctx.devices` is what the push services "answer" for the target.
+    sendPush: async (uid, payload) => { ctx.pushes.push({ uid, payload }); return ctx.devices.map(ok => ({ ok })); }
   });
   ctx.call = async (route, body, query) => {
     const res = {};
@@ -311,4 +314,52 @@ test('following someone who is not training says so instead of erroring', async 
   assert.equal(r.code, 200);
   assert.equal(r.body.live, null);
   assert.equal((await h.as(b).call('GET /api/team/live', null, 'id=ghost')).code, 404);
+});
+
+/* ---------------- wake him up ---------------- */
+
+const quiet = days => ({ workouts: [{ id: 'w', d: iso(days), vol: 0, entries: [] }] });
+
+test('a teammate quiet for six days can be woken up with a push', async () => {
+  const h = harness(); const a = h.add('u1', 'Ann'); h.add('u2', 'Ben', quiet(6));
+  const res = await h.as(a).call('POST /api/team/poke', { id: 'u2' });
+  assert.equal(res.code, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(h.pushes.length, 1);
+  assert.equal(h.pushes[0].uid, 'u2');
+  assert.match(h.pushes[0].payload.body, /Ann probeert je wakker te maken! Al 6 dagen geen workout/);
+  const team = (await h.as(a).call('GET /api/team')).body.team;
+  assert.equal(team.members.find(m => m.id === 'u2').poke.byName, 'Ann');
+});
+
+test('no poke for someone who trained in the last six days, has never trained, or is you', async () => {
+  const h = harness(); const a = h.add('u1', 'Ann', quiet(30)); h.add('u2', 'Ben', quiet(5)); h.add('u3', 'New');
+  assert.equal((await h.as(a).call('POST /api/team/poke', { id: 'u2' })).code, 400);
+  assert.equal((await h.as(a).call('POST /api/team/poke', { id: 'u3' })).code, 400);
+  assert.equal((await h.as(a).call('POST /api/team/poke', { id: 'u1' })).code, 400);
+  assert.equal((await h.as(a).call('POST /api/team/poke', { id: 'nobody' })).code, 404);
+  assert.equal(h.pushes.length, 0);
+});
+
+test('once per 12 hours per person — from anyone on the team', async () => {
+  const h = harness(); const a = h.add('u1', 'Ann'); const b = h.add('u2', 'Ben'); h.add('u3', 'Cat', quiet(9));
+  assert.equal((await h.as(a).call('POST /api/team/poke', { id: 'u3' })).code, 200);
+  const again = await h.as(b).call('POST /api/team/poke', { id: 'u3' });
+  assert.equal(again.code, 429);
+  assert.equal(again.body.poke.byName, 'Ann');
+  assert.equal(h.pushes.length, 1);
+  // after the cooldown it is open again
+  h.db.team.pokes.u3.at -= _internals.POKE_COOLDOWN_MS + 1000;
+  assert.equal((await h.as(b).call('POST /api/team/poke', { id: 'u3' })).code, 200);
+  assert.equal(h.pushes.length, 2);
+});
+
+test('a poke no device took does not use up the cooldown', async () => {
+  const h = harness(); const a = h.add('u1', 'Ann'); h.add('u2', 'Ben', quiet(8));
+  h.devices = [];
+  const res = await h.as(a).call('POST /api/team/poke', { id: 'u2' });
+  assert.equal(res.body.ok, false);
+  assert.equal(res.body.devices, 0);
+  h.devices = [true];
+  assert.equal((await h.as(a).call('POST /api/team/poke', { id: 'u2' })).body.ok, true);
 });

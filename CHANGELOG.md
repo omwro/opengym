@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Wake him up!
+
+A teammate with no workout for more than six days gets a **Wake him up!** button on their
+profile in Team. It sends a push to their phone (“⏰ Wake up! — Ann probeert je wakker te maken!
+Al 8 dagen geen workout 💤”). Once per 12 hours per person, from anyone on the team; the
+button shows who woke them and when it opens again. If they have notifications off nothing is
+used up and the app says so. The team list points at the button with “👉 Tik om hem wakker te
+maken”.
+
 ### English only
 
 The eleven UI translations and nine exercise-instruction packs are removed; the app is in
