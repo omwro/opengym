@@ -85,7 +85,11 @@ function MemberRow({ m, onOpen }) {
       </div>
       {(() => {
         const n = !m.live && inactivityNudge(m)
-        return n && <div className="small" style={{ marginTop: 4, lineHeight: 1.35, ...nudgeStyle(n) }}>{nudgeText(n)}</div>
+        return n && <>
+          <div className="small" style={{ marginTop: 4, lineHeight: 1.35, ...nudgeStyle(n) }}>{nudgeText(n)}</div>
+          {/* the button itself lives on the member sheet; the row says where to find it */}
+          {n.level === 'strong' && !m.you && !m.poke && <div className="dim small" style={{ marginTop: 2 }}>👉 Tik om hem wakker te maken</div>}
+        </>
       })()}
     </div>
     <div style={{ textAlign: 'right' }}>
@@ -97,10 +101,46 @@ function MemberRow({ m, onOpen }) {
   </button>
 }
 
+/* ============================ wake him up ============================ */
+
+// Hours left until the 12-hour cooldown runs out, rounded up so "0 h" never shows.
+const hoursUntil = at => Math.max(1, Math.ceil((at - Date.now()) / 3600000))
+
+/**
+ * "Wake him up!" — a push to a teammate who has had no workout for more than six days (the
+ * same moment the yellow nudge appears). Once per 12 hours per person, from anyone; the server
+ * holds the cooldown, this only shows it. A poke that reached no phone is said out loud and
+ * does not use up the cooldown.
+ */
+function WakeButton({ m, onPoked }) {
+  const [busy, setBusy] = useState(false)
+  const toast = useUI(s => s.toast)
+  const n = inactivityNudge(m)
+  if (m.you || n?.level !== 'strong') return null
+  const go = () => {
+    setBusy(true)
+    T.poke(m.id)
+      .then(r => {
+        if (r.ok) toast('⏰ ' + m.name + ' is gewekt!')
+        else toast(m.name + ' heeft meldingen uit — wakker maken mislukt 😅')
+        onPoked()
+      })
+      .catch(e => { toast(e.message); onPoked() })
+      .finally(() => setBusy(false))
+  }
+  return <div style={{ marginTop: 10 }}>
+    <Button variant="primary" icon="bell" disabled={busy || !!m.poke} onClick={go}>Wake him up!</Button>
+    {m.poke && <div className="dim small" style={{ marginTop: 6, textAlign: 'center' }}>
+      {m.poke.byName} heeft hem al wakker gemaakt · weer mogelijk over {hoursUntil(m.poke.next)} uur
+    </div>}
+  </div>
+}
+
 function MemberSheet({ id, close }) {
   const [d, setD] = useState(null)
   const [err, setErr] = useState(null)
-  useEffect(() => { T.getMember(id).then(r => setD(r.member)).catch(e => setErr(e.message)) }, [id])
+  const load = () => T.getMember(id).then(r => setD(r.member)).catch(e => setErr(e.message))
+  useEffect(() => { load() }, [id])
   if (err) return <div className="empty small">{err}</div>
   if (!d) return <div className="muted small">{t('Loading…')}</div>
   const recent = (d.history || []).slice(0, 20)   // the server sends it newest-first, by date
@@ -108,6 +148,7 @@ function MemberSheet({ id, close }) {
   return <>
     <h3 className="capitalize">{d.name}</h3>
     {(() => { const n = inactivityNudge(d); return n && <div className="small" style={{ marginTop: -6, ...nudgeStyle(n) }}>{nudgeText(n)}</div> })()}
+    <WakeButton m={d} onPoked={load} />
     <div className="tiles" style={{ textAlign: 'left', marginTop: 12 }}>
       <div className="tile"><div className="l">{t('Sessions')}</div><div className="v" style={{ fontSize: '1.3rem' }}>{d.workouts}</div></div>
       <div className="tile"><div className="l">{t('Week streak')}</div><div className="v" style={{ fontSize: '1.3rem' }}>{d.streak}</div></div>
