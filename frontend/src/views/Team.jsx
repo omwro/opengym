@@ -15,6 +15,10 @@ import { confirmSheet, planImportSheet, workoutDetailSheet } from '../sheets.jsx
 import * as T from '../lib/team-api.js'
 import { useTeam } from '../lib/team-api.js'
 import { inactivityNudge } from '../lib/nudge.js'
+
+// The 72-hour mention reads as ordinary text; only more than six days of silence gets the yellow and the eyes.
+const nudgeStyle = n => (n.level === 'strong' ? { color: 'var(--yellow)' } : { color: 'var(--label)' })
+const nudgeText = n => (n.level === 'strong' ? '👀 ' + n.text : n.text)
 import { EXIDX } from '../lib/exercises.js'
 import Icon from '../components/Icon.jsx'
 import { Button, TextField, Segmented } from '../components/ui.jsx'
@@ -81,7 +85,7 @@ function MemberRow({ m, onOpen }) {
       </div>
       {(() => {
         const n = !m.live && inactivityNudge(m)
-        return n && <div className="small" style={{ marginTop: 4, color: 'var(--yellow)', lineHeight: 1.35 }}>👀 {n.text}</div>
+        return n && <div className="small" style={{ marginTop: 4, lineHeight: 1.35, ...nudgeStyle(n) }}>{nudgeText(n)}</div>
       })()}
     </div>
     <div style={{ textAlign: 'right' }}>
@@ -103,7 +107,7 @@ function MemberSheet({ id, close }) {
   const open = w => workoutDetailSheet(w, { name: d.name, unit: d.unit, customEx: d.customEx })
   return <>
     <h3 className="capitalize">{d.name}</h3>
-    {(() => { const n = inactivityNudge(d); return n && <div className="small" style={{ color: 'var(--yellow)', marginTop: -6 }}>👀 {n.text}</div> })()}
+    {(() => { const n = inactivityNudge(d); return n && <div className="small" style={{ marginTop: -6, ...nudgeStyle(n) }}>{nudgeText(n)}</div> })()}
     <div className="tiles" style={{ textAlign: 'left', marginTop: 12 }}>
       <div className="tile"><div className="l">{t('Sessions')}</div><div className="v" style={{ fontSize: '1.3rem' }}>{d.workouts}</div></div>
       <div className="tile"><div className="l">{t('Week streak')}</div><div className="v" style={{ fontSize: '1.3rem' }}>{d.streak}</div></div>
