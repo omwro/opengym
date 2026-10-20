@@ -18,7 +18,7 @@ describe('the "is he still alive?" nudge', () => {
     const n = inactivityNudge({ id: 'a', name: 'Hamza', last: ago(7) })
     expect(n.level).toBe('strong')
     expect(n.days).toBe(7)
-    expect(n.text).toBe('Check zijn pols! Mogelijk is hij dood, of hij is WEAK!')
+    expect(n.text).toBe('Al 7 dagen niet getraind. Check zijn pols! Mogelijk is hij dood, of hij is WEAK!')
   })
   it('does not nag someone who has simply never logged yet', () => {
     expect(inactivityNudge({ id: 'a', name: 'New', last: null })).toBeNull()

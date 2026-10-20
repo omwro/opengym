@@ -14,7 +14,7 @@ const daysSince = iso => Math.round((new Date(todayISO() + 'T00:00:00') - new Da
 export function inactivityNudge({ last }) {
   if (!last) return null                         // never logged yet: new, not missing
   const days = daysSince(last)
-  if (days > STRONG_DAYS) return { level: 'strong', days, text: NUDGE }
+  if (days > STRONG_DAYS) return { level: 'strong', days, text: mildText(days) + ' ' + NUDGE }
   if (days >= MILD_DAYS) return { level: 'mild', days, text: mildText(days) }
   return null
 }
