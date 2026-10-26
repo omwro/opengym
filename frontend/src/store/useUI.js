@@ -5,6 +5,7 @@ import { clearNotifications } from '../lib/push.js'
 import { api } from '../lib/api.js'
 import { t } from '../lib/i18n.js'
 import { useStore } from './useStore.js'
+import { installBackstack } from '../lib/backstack.js'
 
 // Fire-and-forget: lets the server push a "rest over" alert if this tab gets suspended
 // before the local timer completes. No-ops for guests / offline.
@@ -29,11 +30,16 @@ export const useUI = create((set, get) => ({
   openSheet(render, { kind = 'sheet', locked = false } = {}) {
     const id = uid()
     set(s => ({ sheets: [...s.sheets, { id, render, kind, locked }] }))
+    back?.opened(id)
     const close = () => get().closeSheet(id)
     return { id, close, lock: v => set(s => ({ sheets: s.sheets.map(x => x.id === id ? { ...x, locked: v } : x) })) }
   },
-  closeSheet(id) { set(s => ({ sheets: s.sheets.filter(x => x.id !== id) })) },
-  closeAll() { set({ sheets: [] }) },
+  closeSheet(id) {
+    if (!get().sheets.some(x => x.id === id)) return
+    set(s => ({ sheets: s.sheets.filter(x => x.id !== id) }))
+    back?.closed(id)
+  },
+  closeAll() { set({ sheets: [] }); back?.closedAll() },
 
   toast(msg) {
     set({ toastMsg: msg })
@@ -147,3 +153,20 @@ export const useUI = create((set, get) => ({
     set({ work: null })
   }
 }))
+
+// Back button / back gesture closes the top sheet before it changes the screen (lib/backstack.js).
+// Installed when this module loads, which is before the router mounts — its popstate listener
+// has to run first.
+const back = typeof window !== 'undefined' && window.history
+  ? installBackstack(window, {
+    // Back is deliberate, like a swipe down — so it closes a locked bottom sheet just as the
+    // swipe does. Only a locked centered dialog (the workout summary), which cannot be swiped
+    // away either, holds on.
+    top: () => {
+      const s = useUI.getState().sheets.at(-1)
+      return s ? { id: s.id, locked: s.locked && s.kind === 'center' } : null
+    },
+    isOpen: id => useUI.getState().sheets.some(x => x.id === id),
+    dismissTop: () => useUI.setState(s => ({ sheets: s.sheets.slice(0, -1) }))
+  })
+  : null

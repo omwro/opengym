@@ -474,7 +474,7 @@ function ActiveWorkout() {
 
   return <div className="narrow">
     <div className="hdr">
-      <button className="iconbtn" aria-label={t('Discard')} onClick={() => confirmSheet({ title: t('Discard workout?'), message: t('The sets you logged in this session will be lost.'), confirmText: t('Discard'), danger: true, onConfirm: () => { update(s => { s.active = null }); stopRest(); nav('/home') } })}><Icon name="xmark" /></button>
+      <button className="iconbtn" aria-label={t('Discard')} onClick={() => confirmSheet({ title: t('Discard workout?'), message: t('The sets you logged in this session will be lost.'), confirmText: t('Discard'), danger: true, onConfirm: () => { update(s => { s.active = null }); stopRest(); nav('/home', { replace: true }) } })}><Icon name="xmark" /></button>
       {/* the name opens the whole session at a glance — the screen below only shows one exercise */}
       <button className="tappable" style={{ textAlign: 'center', minWidth: 0 }} aria-label={t('Show the whole workout')} onClick={overviewSheet}>
         <div className="row" style={{ fontWeight: 600, gap: 4, justifyContent: 'center' }}>

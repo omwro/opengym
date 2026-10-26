@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### The back button behaves like an app's
+
+Android's back button and back gesture used to skip over an open sheet and change the screen
+underneath it. Now:
+
+- **Back closes the open sheet first** — the weigh-in, the exercise picker, a teammate's profile,
+  a confirmation — one sheet per press, and only then goes back a screen. A sheet you closed
+  yourself never leaves a back press that seems to do nothing. The workout summary stays put.
+- **Tabs don't pile up history.** Back from any tab goes to Home; back from Home leaves the app.
+- **Finishing or discarding a workout** no longer leaves the empty workout screen behind Home.
+- **The Android app** (Capacitor build) now sends back through the same history instead of
+  closing the app on the first press.
+
 ### Wake him up!
 
 A teammate with no workout for more than six days gets a **Wake him up!** button on their
