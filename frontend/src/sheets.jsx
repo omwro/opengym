@@ -985,7 +985,9 @@ function FinishSummary({ w, prs, e1prs = [], close }) {
     {coachOn && <SessionRating w={w} />}
     {!w.routineId && w.entries.length > 0 && <SaveAsRoutine w={w} />}
     <div style={{ height: 14 }} />
-    <Button variant="primary" onClick={() => { close(); nav('/home') }}>{t('Nice!')}</Button>
+    {/* replace, not push: the workout screen behind it is empty now, and back from Home
+        should not land on it */}
+    <Button variant="primary" onClick={() => { close(); nav('/home', { replace: true }) }}>{t('Nice!')}</Button>
   </div>
 }
 export function finishWorkout() {

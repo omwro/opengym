@@ -22,8 +22,17 @@ export default function TabBar({ onStart }) {
     }
     nav('/workout')
   }
+  // Tabs behave like an app's, not a website's, for the back button: switching between tabs
+  // does not stack up history. Leaving Home pushes one entry; every other tab switch replaces
+  // it, so back from any tab lands on Home, and back from Home leaves the app.
+  const goTab = to => {
+    if (loc.pathname === to) return
+    if (cur === 'home' && loc.pathname === '/home') nav(to, { state: { tabFromHome: true } })
+    else if (to === '/home' && loc.state?.tabFromHome) nav(-1)
+    else nav(to, { replace: true, state: loc.state })
+  }
   const Tab = ({ k, icon, to, label }) => (
-    <button className={on(k) ? 'on' : ''} onClick={() => nav(to)}>
+    <button className={on(k) ? 'on' : ''} onClick={() => goTab(to)}>
       <Icon name={icon} /><span>{label}</span>
     </button>
   )
