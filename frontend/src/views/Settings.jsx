@@ -126,6 +126,16 @@ export default function Settings() {
       </Row>
     </Section>
 
+    {/* ---------- home screen ---------- */}
+    <Section title={t('Home screen')} footer={t('A home session starts empty like Freestyle. Your team sees it marked 🏠, and it doesn’t count as going to the gym.')}>
+      <Row icon="shuffle" iconTint="var(--acc)" title={t('Freestyle')}>
+        <Switch checked={S.showFreestyle !== false} onChange={v => update(s => { s.showFreestyle = v })} />
+      </Row>
+      <Row icon="house" iconTint="var(--teal)" title={t('Home session')}>
+        <Switch checked={!!S.showHomeSession} onChange={v => update(s => { s.showHomeSession = v })} />
+      </Row>
+    </Section>
+
     {/* ---------- during a workout ---------- */}
     <Section title={t('During a workout')} footer={wakeOK ? t('The screen stays on while a workout is running, so you don’t have to unlock your phone between sets.') : null}>
       <SelectRow icon="timer" iconTint="var(--orange)" title={t('Rest timer')}

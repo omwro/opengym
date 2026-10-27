@@ -141,6 +141,21 @@ function BodyCard({ nav }) {
   </div>
 }
 
+// A one-tap start under today's session (Freestyle, Home session).
+function QuickStart({ icon, label, text, onClick }) {
+  return <div className="today-row" style={{ marginTop: 8 }} onClick={onClick}>
+    <div className="row" style={{ gap: 9, minWidth: 0 }}>
+      <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name={icon} /></span>
+      <div style={{ minWidth: 0 }}>
+        <div className="lbl2">{label}</div>
+        {/* a sentence, not a name — keep the class from title-casing it */}
+        <div className="ttl" style={{ textTransform: 'none' }}>{text}</div>
+      </div>
+    </div>
+    <Icon name="chevronRight" className="chev" />
+  </div>
+}
+
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
 export default function Home() {
   const nav = useNavigate()
@@ -206,18 +221,12 @@ export default function Home() {
           : <Icon name="plus" className="chev" />}
       </div>
       {/* No plan needed: start empty and add each exercise as you get to it. Hidden while a
-          session runs — there is only ever one, and the row above already resumes it. */}
-      {!S.active && <div className="today-row" style={{ marginTop: 8 }} onClick={() => startFlow(null)}>
-        <div className="row" style={{ gap: 9, minWidth: 0 }}>
-          <span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="shuffle" /></span>
-          <div style={{ minWidth: 0 }}>
-            <div className="lbl2">{t('Freestyle')}</div>
-            {/* a sentence, not a name — keep the class from title-casing it */}
-            <div className="ttl" style={{ textTransform: 'none' }}>{t('Start empty, add as you go')}</div>
-          </div>
-        </div>
-        <Icon name="chevronRight" className="chev" />
-      </div>}
+          session runs — there is only ever one, and the row above already resumes it. Each row
+          can be switched off in Settings → Home screen. */}
+      {!S.active && S.showFreestyle !== false && <QuickStart icon="shuffle" label={t('Freestyle')}
+        text={t('Start empty, add as you go')} onClick={() => startFlow(null)} />}
+      {!S.active && S.showHomeSession && <QuickStart icon="house" label={t('Home session')}
+        text={t('Train at home')} onClick={() => startFlow(null, { home: true })} />}
     </div>
 
     {coachOn && <CoachCard nav={nav} />}

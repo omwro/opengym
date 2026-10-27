@@ -800,7 +800,7 @@ export function WorkoutRow({ w, onClick }) {
   const glyph = glyphOf((st.routines.find(r => r.id === w.routineId) || {}).emoji)
   return <div className="item" onClick={onClick}>
     <span className="lrow-i" style={{ width: 34, height: 34, borderRadius: 8, fontSize: 19 }}><Icon name={glyph} /></span>
-    <div className="grow"><div className="tt">{w.name}</div>
+    <div className="grow"><div className="tt">{w.name}{w.home ? ' 🏠' : ''}</div>
       <div className="ss">{[fmtDate(w.d, true), ...durPart(w.end - w.start), t('{0} sets', setsDone(w)), fmtVol(w.vol, st.unit)].join(' · ')}</div></div>
     {w.prs && w.prs.length > 0 && <span className="pr"><Icon name="trophy" />{w.prs.length} PR</span>}
     <Icon name="chevronRight" className="chev" />
@@ -808,10 +808,12 @@ export function WorkoutRow({ w, onClick }) {
 }
 
 /* ============================ workout lifecycle ============================ */
-export function startFlow(routineId) {
-  bwSheet({ required: true, onDone: bw => beginWorkout(routineId, bw) })
+// `home`: a session trained at home. It starts empty like freestyle, is saved with `home: true`,
+// shows as 🏠 to the team, and does not stop the "Avoided the gym" count.
+export function startFlow(routineId, opts = {}) {
+  bwSheet({ required: true, onDone: bw => beginWorkout(routineId, bw, opts) })
 }
-export function beginWorkout(routineId, bw) {
+export function beginWorkout(routineId, bw, { home = false } = {}) {
   const st = S()
   const r = routineId ? st.routines.find(x => x.id === routineId) : null
   // The prescription is applied as the session is built, so you walk up to the bar with the
@@ -822,7 +824,8 @@ export function beginWorkout(routineId, bw) {
     return { id: cfg.id, sg: cfg.sg, target: { ...cfg }, plan, sets: applyPrescription(buildSets(st, cfg), plan) }
   })
   update(s => {
-    s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : t('Freestyle'), bw: bw || null, cur: 0, entries }
+    s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : home ? t('Home session') : t('Freestyle'), bw: bw || null, cur: 0, entries }
+    if (home) s.active.home = true
   })
   useUI.getState().stopRest()
   nav('/workout')
@@ -1015,6 +1018,7 @@ function doFinishWorkout() {
   })
   const w = {
     id: A.id, d: A.d, start: A.start, end: Date.now(), routineId: A.routineId, name: A.name, bw: A.bw,
+    ...(A.home ? { home: true } : {}),
     // `target` (what the session prescribed) is kept alongside the sets: without it a
     // finished workout cannot say whether it hit its reps, and a timed session reads back
     // as "0 reps". It is what the progression engine works from.

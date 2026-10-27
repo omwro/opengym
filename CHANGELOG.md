@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Home sessions, and Home's quick starts in Settings
+
+- 🏠 **Home session**: a one-tap start on Home for training at home. It starts empty like
+  Freestyle, is saved as a home session, and shows as 🏠 in the team feed and in history.
+- ⚙️ **Settings → Home screen** switches each quick start on or off: Freestyle (on by default)
+  and Home session (off by default).
+- 🏋️ **"Avoided the gym for N days"** replaces "Al N dagen niet getraind". It counts from the
+  last workout that was *not* a home session, so a home session does not stop it — nor the
+  yellow nudge or *Wake him up!* after six days. Someone who has only ever trained at home has
+  avoided the gym since their first session.
+
 ### The back button behaves like an app's
 
 Android's back button and back gesture used to skip over an open sheet and change the screen
