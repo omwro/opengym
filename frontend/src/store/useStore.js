@@ -19,6 +19,10 @@ export const DEF = {
   // preference rather than data: it follows you across devices so Home opens on the thing
   // you are actually chasing.
   measureGoals: {}, measureFocus: 'weight',
+  // Quick-start rows under today's session on Home. Freestyle is on until switched off; the
+  // home session (a freestyle workout marked as done at home, which teammates see and which
+  // does not count as going to the gym) is opt-in.
+  showFreestyle: true, showHomeSession: false,
   exWeights: {}, workouts: [], active: null, customEx: [], gifSize: 'full',
   // effort: which per-set effort scale is logged — 'none' | 'rir' | 'rpe'. null, not 'none', so
   // that a profile which never chose (loaded state is overlaid on DEF, on every path: local,

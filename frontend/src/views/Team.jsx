@@ -163,7 +163,7 @@ function MemberSheet({ id, close }) {
       {recent.map(w => <button key={w.id} className="row between tappable" onClick={() => open(w)}
         style={{ width: '100%', textAlign: 'left', padding: '9px 2px', borderBottom: '1px solid var(--sep)' }}>
         <div>
-          <div className="small" style={{ fontWeight: 600 }}>{w.name || t('Workout')}</div>
+          <div className="small" style={{ fontWeight: 600 }}>{w.name || t('Workout')}{w.home ? ' 🏠' : ''}</div>
           <div className="dim" style={{ fontSize: '.72rem' }}>{fmtDate(w.d, true)} · {t((w.entries || []).length === 1 ? '{0} exercise' : '{0} exercises', (w.entries || []).length)}{w.prs?.length ? ' · ' + t(w.prs.length === 1 ? '{0} PR' : '{0} PRs', w.prs.length) : ''}</div>
         </div>
         <span className="row" style={{ gap: 6 }}><span className="small muted">{fmtVol(Math.round(w.vol || 0), d.unit)}</span><Icon name="chevronRight" className="chev" /></span>
@@ -366,7 +366,7 @@ function Feed({ enabled }) {
       style={{ width: '100%', textAlign: 'left', padding: '10px 2px', borderBottom: '1px solid var(--sep)', opacity: opening === f.uid + f.id ? .5 : 1 }}>
       <div style={{ minWidth: 0 }}>
         <div className="small" style={{ fontWeight: 600 }}>
-          <span className="capitalize">{f.who}</span>{f.name ? ' · ' + f.name : ''}
+          <span className="capitalize">{f.who}</span>{f.name ? ' · ' + f.name : ''}{f.home ? ' 🏠' : ''}
         </div>
         <div className="dim" style={{ fontSize: '.72rem', marginTop: 1 }}>
           {rel(f.d)} · {t(f.sets === 1 ? '{0} set' : '{0} sets', f.sets)}{f.min ? ' · ' + t('{0} min', f.min) : ''}

@@ -327,7 +327,7 @@ test('a teammate quiet for six days can be woken up with a push', async () => {
   assert.equal(res.body.ok, true);
   assert.equal(h.pushes.length, 1);
   assert.equal(h.pushes[0].uid, 'u2');
-  assert.match(h.pushes[0].payload.body, /Ann probeert je wakker te maken! Al 6 dagen geen workout/);
+  assert.match(h.pushes[0].payload.body, /Ann probeert je wakker te maken! Avoided the gym for 6 days/);
   const team = (await h.as(a).call('GET /api/team')).body.team;
   assert.equal(team.members.find(m => m.id === 'u2').poke.byName, 'Ann');
 });
@@ -362,4 +362,38 @@ test('a poke no device took does not use up the cooldown', async () => {
   assert.equal(res.body.devices, 0);
   h.devices = [true];
   assert.equal((await h.as(a).call('POST /api/team/poke', { id: 'u2' })).body.ok, true);
+});
+
+/* ---------------- home sessions don't count as the gym ---------------- */
+
+test('the gym counter skips home sessions; the last-session date does not', () => {
+  const s = _internals.summarize({ workouts: [
+    { id: 'a', d: iso(9), vol: 0, entries: [] },
+    { id: 'b', d: iso(1), vol: 0, entries: [], home: true }
+  ] });
+  assert.equal(s.last, iso(1));
+  assert.equal(s.avoidSince, iso(9));
+});
+
+test('home-only training has avoided the gym since the first session', () => {
+  const s = _internals.summarize({ workouts: [
+    { id: 'a', d: iso(2), vol: 0, entries: [], home: true },
+    { id: 'b', d: iso(12), vol: 0, entries: [], home: true }
+  ] });
+  assert.equal(s.avoidSince, iso(12));
+  assert.equal(_internals.summarize({ workouts: [] }).avoidSince, null);
+});
+
+test('a home session yesterday does not save you from being woken up', async () => {
+  const h = harness(); const a = h.add('u1', 'Ann');
+  h.add('u2', 'Ben', { workouts: [{ id: 'g', d: iso(8), vol: 0, entries: [] }, { id: 'h', d: iso(1), vol: 0, entries: [], home: true }] });
+  const res = await h.as(a).call('POST /api/team/poke', { id: 'u2' });
+  assert.equal(res.code, 200);
+  assert.match(h.pushes[0].payload.body, /Avoided the gym for 8 days/);
+});
+
+test('the feed marks home sessions', async () => {
+  const h = harness(); const a = h.add('u1', 'Ann', { workouts: [{ id: 'h', d: iso(0), vol: 0, entries: [], home: true }] });
+  const res = await h.as(a).call('GET /api/team/feed');
+  assert.equal(res.body.feed[0].home, true);
 });

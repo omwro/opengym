@@ -19,8 +19,8 @@ const MAX_PLANS = 30;
 const NOTE_MAX = 500;
 const NAME_MAX = 40;
 const DEFAULT_NAME = 'The team';
-// "Wake him up!": a push to a teammate who has gone quiet. Only once they have had no workout
-// for six days — the same moment the client's loud nudge appears — and at most once per
+// "Wake him up!": a push to a teammate who has gone quiet. Only once they have avoided the gym
+// for six days — home sessions do not count — the same moment the client's loud nudge appears — and at most once per
 // 12 hours per person, from anyone, so a whole team cannot take turns spamming one phone.
 const POKE_AFTER_DAYS = 6;
 const POKE_COOLDOWN_MS = 12 * 3600000;
@@ -53,6 +53,11 @@ function summarize(state) {
     // whatever order the export had, and "last trained" is the one field that would then be
     // quietly wrong on every screen it appears on.
     last: workouts.reduce((m, w) => (!m || w.d > m ? w.d : m), null),
+    // What "Avoided the gym for N days" counts from: the last workout that was not a home
+    // session. Someone who has only ever trained at home has been avoiding it since their
+    // first logged session. null only for a profile that has logged nothing at all.
+    avoidSince: workouts.filter(w => !w.home).reduce((m, w) => (!m || w.d > m ? w.d : m), null)
+      || workouts.reduce((m, w) => (!m || w.d < m ? w.d : m), null),
     week: workouts.filter(w => w.d >= last7).length,
     vol7: vol(workouts.filter(w => w.d >= last7)),
     vol30: vol(recent),
@@ -84,7 +89,7 @@ async function feed(members, readState, limit) {
     for (const w of (st?.workouts || [])) {
       items.push({
         uid: m.id, who: m.name,
-        id: w.id, d: w.d, name: w.name || null,
+        id: w.id, d: w.d, name: w.name || null, home: !!w.home,
         vol: Math.round(w.vol || 0), unit: st?.unit === 'lb' ? 'lb' : 'kg',
         sets: (w.entries || []).reduce((n, e) => n + (e.sets || []).filter(s => s.done).length, 0),
         exercises: (w.entries || []).length,
@@ -314,13 +319,13 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       const u = memberUsers().find(x => x.id === body.id);
       if (!u) return json(res, 404, { error: 'no such member' });
       if (u.id === ctx.user.id) return json(res, 400, { error: 'you cannot wake yourself up' });
-      const days = daysSinceISO(summarize(await readState(u.id)).last);
+      const days = daysSinceISO(summarize(await readState(u.id)).avoidSince);
       if (days == null || days < POKE_AFTER_DAYS) return json(res, 400, { error: 'not inactive long enough', days });
       const prev = pokeOf(ctx.team, u.id);
       if (prev) return json(res, 429, { error: 'already woken up recently', poke: prev });
       const results = await sendPush(u.id, {
         title: '⏰ Wake up!',
-        body: `${ctx.user.name} probeert je wakker te maken! Al ${days} dagen geen workout 💤`,
+        body: `${ctx.user.name} probeert je wakker te maken! Avoided the gym for ${days} days 💤`,
         tag: 'poke',
         url: '#/home'
       }, { ttl: 12 * 3600 });
