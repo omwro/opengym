@@ -13,6 +13,11 @@ function fakeWindow(url = '/home') {
     get length() { return entries.length },
     pushState(state, _t, u) { entries.splice(i + 1); entries.push({ url: u || entries[i].url, state }); i++ },
     replaceState(state, _t, u) { entries[i] = { url: u || entries[i].url, state } },
+    // following a link to another #/route: a new entry with no state, and a popstate
+    hashNav(u) {
+      entries.splice(i + 1); entries.push({ url: u, state: null }); i++
+      const e = { stopped: false, stopImmediatePropagation() { this.stopped = true } }; listeners.forEach(f => f(e)); win.lastPop = e
+    },
     back() {
       if (i === 0) return
       Promise.resolve().then(() => { i--; const e = { stopped: false, stopImmediatePropagation() { this.stopped = true } }; listeners.forEach(f => f(e)); win.lastPop = e })
@@ -138,3 +143,25 @@ describe('a sheet closed from the UI leaves no dead back press', () => {
     expect(t.win.history.url).toBe('/home')
   })
 })
+
+describe('a link to another screen is not a back press', () => {
+  it('right after closing a sheet, the new screen stays', async () => {
+    const t = setup()
+    t.nav('/plan')
+    t.open('a'); t.closeFromUI('a')
+    t.win.history.hashNav('/workout')
+    await settle(); await settle()
+    expect(t.win.history.url).toBe('/workout')
+    expect(t.win.lastPop.stopped).toBe(false)
+  })
+
+  it('with a sheet open, the router still gets the navigation', async () => {
+    const t = setup()
+    t.open('a')
+    t.win.history.hashNav('/team')
+    await settle()
+    expect(t.win.history.url).toBe('/team')
+    expect(t.win.lastPop.stopped).toBe(false)
+  })
+})
+

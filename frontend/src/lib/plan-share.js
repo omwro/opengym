@@ -12,6 +12,7 @@ import { EXIDX } from './exercises.js'
 import { modeOf, fmtSec } from './history.js'
 import { uid, todayISO, DAYN, fmtNum, exCount } from './format.js'
 import { t } from './i18n.js'
+import { normalizeWarmup } from './warmup.js'
 
 const PLAN_FMT = 1
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]   // Mon-first, matching the Plan screen
@@ -39,6 +40,8 @@ function cleanEx(e) {
   if (e.inc > 0) o.inc = e.inc
   if (e.repsMin != null) o.repsMin = e.repsMin
   if (e.sg) o.sg = e.sg
+  // Warm-ups are part of the plan too; normalised, so a shared file cannot carry nonsense.
+  if (mode === 'reps') { const wu = normalizeWarmup(e.warmup); if (wu.length) o.warmup = wu }
   return o
 }
 

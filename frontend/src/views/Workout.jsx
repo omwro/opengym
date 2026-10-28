@@ -17,6 +17,7 @@ import { Thumb } from '../components/Media.jsx'
 import { useNotes, notesAvailable } from '../lib/notes.js'
 import { nextPrescription, applyPrescription, weightStep } from '../lib/progression.js'
 import { glyphOf } from '../lib/glyphs.js'
+import { refreshWarm, warmFor, workingWeight } from '../lib/warmup.js'
 
 /* ---------- start chooser (no active workout) ---------- */
 function StartChooser() {
@@ -146,7 +147,7 @@ function SwapSheet({ exId, onPick, close }) {
   </>
 }
 
-function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onStartTimed, onSwap }) {
+function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onStartTimed, onSwap, onToggleWarm, onWarmField }) {
   const S = useStore(s => s.S)
   const working = useUI(s => s.work)
   const entry = S.active.entries[entryIdx]
@@ -194,6 +195,16 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
       <button aria-label="Increase" onClick={() => bump(s, i, col, 1)}><Icon name="plus" /></button>
     </div>
   )
+  // Warm-up rows: weight and reps only, same steppers, their own handlers — they are not
+  // working sets and never touch them.
+  const warm = mode === 'reps' ? (entry.warm || []) : []
+  const wcell = (s, i, col, cls) => (
+    <div className={'stp ' + cls}>
+      <button aria-label="Decrease" onClick={() => onWarmField(i, col.f, Math.max(0, Math.round(((s[col.f] || 0) - col.step) * 100) / 100))}><Icon name="minus" /></button>
+      <span className="val"><NumberField decimal={col.dec} value={s[col.f] ?? ''} onChange={v => onWarmField(i, col.f, v ?? 0)} /></span>
+      <button aria-label="Increase" onClick={() => onWarmField(i, col.f, Math.round(((s[col.f] || 0) + col.step) * 100) / 100)}><Icon name="plus" /></button>
+    </div>
+  )
   return <>
     <Media ex={ex} key={entry.id} compact={compact} minimizable />
     <div className="row between" style={{ marginBottom: 6 }}>
@@ -228,6 +239,13 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
     <div className="card" style={{ marginTop: 10, marginBottom: 0 }}>
       {/* the header carries the same eff3 sizing as the rows, or the labels drift off their columns */}
       <div className={'sethead' + (col3 ? ' eff3' : '')}><span className="n-sp" /><span className="w-sp">{col1.hd}</span><span className="r-sp">{col2.hd}</span>{col3 && <span className="eff-sp">{col3.hd}</span>}{timed && <span className="ck-sp" />}<span className="ck-sp" /></div>
+      {warm.map((s, i) => <div key={'w' + i} className={'setrow warm' + (s.done ? ' done' : '') + (col3 ? ' eff3' : '')}>
+        <div className="n" title={t('Warm-up')}>W</div>
+        {wcell(s, i, col1, 'w')}
+        {wcell(s, i, col2, 'r')}
+        {col3 && <div className="stp eff" style={{ visibility: 'hidden' }} />}
+        <Check checked={s.done} onChange={() => onToggleWarm(i)} />
+      </div>)}
       {entry.sets.map((s, i) => <div key={i} className={'setrow' + (s.done ? ' done' : '') + (col3 ? ' eff3' : '')}>
         <div className="n">{i + 1}</div>
         {cell(s, i, col1, 'w')}
@@ -304,6 +322,9 @@ function WorkoutOverview({ close }) {
                 : done === e.sets.length ? <Icon name="checkCircle" style={{ color: 'var(--acc)', flex: 'none' }} /> : null}
             </div>
             <div className="chips" style={{ marginTop: 6, flexWrap: 'wrap' }}>
+              {(e.warm || []).map((x, i) => <span key={'w' + i} className={'tag nocap' + (x.done ? ' acc' : '')} style={{ opacity: .7 }}>
+                W {x.done && <Icon name="check" />}{fmtNum(x.w || 0)}×{x.r || 0}
+              </span>)}
               {e.sets.map((x, i) => <span key={i} className={'tag nocap' + (x.done ? ' acc' : '')}>
                 {x.done && <Icon name="check" />}{setLabel(e.id, x, cfg)}
               </span>)}
@@ -349,6 +370,17 @@ function ActiveWorkout() {
     // not done yet takes it too, so changing the load means typing it once, not per set.
     // Sets already done keep what they were — that is history.
     if (field === 'w' && v != null) carryWeight(e.sets, i, v)
+    // Percentage warm-ups follow the working weight, so they are right before you start them.
+    if (field === 'w' && i === 0 && e.warm) e.warm = refreshWarm(e.warm, workingWeight(e.sets), weightStep(e.id, S.unit))
+  })
+  // A warm-up weight you type is yours: it stops following the working weight.
+  const setWarmField = (idx, i, field, v) => mutEntry(idx, e => {
+    e.warm[i][field] = v
+    if (field === 'w') delete e.warm[i].pct
+  })
+  const toggleWarm = (idx, i) => mutEntry(idx, e => {
+    e.warm[i].done = !e.warm[i].done
+    if (e.warm[i].done) { beep(S.sound, 1040, 0.12); vibrate(30) }
   })
   const modeAt = idx => modeOf({ ...(A.entries[idx].target || {}), id: A.entries[idx].id })
   const addSet = idx => mutEntry(idx, e => {
@@ -369,8 +401,9 @@ function ActiveWorkout() {
     const target = { ...(old.target || {}), id: picked.id, weight: 0 }
     const full = { ...target, id: picked.id }
     const plan = nextPrescription(s, full, s.routines.find(r => r.id === s.active.routineId))
-    s.active.entries[idx] = { id: picked.id, target, plan, sg: old.sg, swappedFrom: original,
-      sets: applyPrescription(buildSets(s, full), plan) }
+    const sets = applyPrescription(buildSets(s, full), plan)
+    const warm = warmFor(full, sets, picked.id, s.unit)
+    s.active.entries[idx] = { id: picked.id, target, plan, sg: old.sg, swappedFrom: original, sets, ...(warm.length ? { warm } : {}) }
     // Remember the stand-in so it is offered first the next time the machine is taken.
     s.alts = s.alts || {}
     s.alts[original] = [picked.id, ...(s.alts[original] || []).filter(x => x !== picked.id)].slice(0, 5)
@@ -495,11 +528,11 @@ function ActiveWorkout() {
           {unit.map((idx, k) => <div key={idx} className="ss-ex">
             {k > 0 && <div className="ss-amp">+</div>}
             <ExerciseBlock entryIdx={idx} compact
-              onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onStartTimed={i => startTimed(idx, i)} onSwap={() => swap(idx)} />
+              onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onStartTimed={i => startTimed(idx, i)} onSwap={() => swap(idx)} onToggleWarm={i => toggleWarm(idx, i)} onWarmField={(i, f, v) => setWarmField(idx, i, f, v)} />
           </div>)}
         </div>
       ) : (
-        <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swap(cur)} />
+        <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swap(cur)} onToggleWarm={i => toggleWarm(cur, i)} onWarmField={(i, f, v) => setWarmField(cur, i, f, v)} />
       )}
     </> : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}
       <div style={{ height: 14 }} /><Button variant="primary" icon="plus" onClick={freestylePicker}>{t('Add exercise')}</Button></div>}
@@ -529,7 +562,9 @@ function ActiveWorkout() {
       : <Button onClick={() => exercisePicker(ex => exConfigSheet(ex, null, cfg => update(s => {
         const full = { ...cfg, id: ex.id }
         const plan = nextPrescription(s, full, s.routines.find(r => r.id === s.active.routineId))
-        s.active.entries.push({ id: ex.id, target: { ...cfg }, plan, sets: applyPrescription(buildSets(s, full), plan) })
+        const sets = applyPrescription(buildSets(s, full), plan)
+        const warm = warmFor(full, sets, ex.id, s.unit)
+        s.active.entries.push({ id: ex.id, target: { ...cfg }, plan, sets, ...(warm.length ? { warm } : {}) })
         s.active.cur = s.active.entries.length - 1
       }), null, S.routines.find(r => r.id === A.routineId)))} icon="plus">{t('Add exercise')}</Button>}
     {freestyle && A.entries.length > 0 && <>
