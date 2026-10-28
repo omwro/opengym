@@ -65,8 +65,8 @@ export function loadStarterPlan() {
 const W_LO = 1
 const wHi = unit => (unit === 'lb' ? 660 : 300)
 // `min`: a body weight is never 0, but a working weight can be — a bodyweight exercise, or an
-// empty machine. `jumps`: extra one-tap increases, for the working-weight dialog where the next
-// plate or dumbbell is +2, +2.5 or +5 rather than half a kilo.
+// empty machine. `jumps`: extra one-tap steps both ways, for the working-weight dialog where the
+// next plate or dumbbell is ±2, ±2.5 or ±5 rather than half a kilo.
 function WeightInput({ value, setValue, unit, min = W_LO, jumps = [] }) {
   const W_HI = wHi(unit)
   const clamp = x => Math.max(min, Math.min(W_HI, Math.round((x || 0) * 10) / 10))
@@ -85,7 +85,9 @@ function WeightInput({ value, setValue, unit, min = W_LO, jumps = [] }) {
       <button className="chip" onClick={() => onSlide(value + 1)}>+1</button>
     </div>
     {jumps.length > 0 && <div className="chips" style={{ justifyContent: 'center', margin: '0 0 8px' }}>
-      {jumps.map(j => <button key={j} className="chip" onClick={() => onSlide(value + j)}>+{fmtNum(j)}</button>)}
+      {/* both directions, biggest step on the outside: −5 −2.5 −2 +2 +2.5 +5 */}
+      {[...jumps].reverse().map(j => <button key={'-' + j} className="chip" onClick={() => onSlide(value - j)}>−{fmtNum(j)}</button>)}
+      {jumps.map(j => <button key={'+' + j} className="chip" onClick={() => onSlide(value + j)}>+{fmtNum(j)}</button>)}
     </div>}
     <Slider value={sv} min={min} max={W_HI} step={0.5} onChange={onSlide} />
   </>

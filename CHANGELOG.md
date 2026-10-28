@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### −2, −2.5 and −5 next to the +2, +2.5 and +5
+
+The working-weight dialog after an exercise steps down by the same amounts it steps up:
+−5 −2.5 −2 +2 +2.5 +5, still never below 0.
+
 ### "Training now" stays on while you train
 
 Teammates sometimes lost sight of you mid-workout until you reopened the app. Two causes,
