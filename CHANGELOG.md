@@ -11,7 +11,7 @@ both fixed:
   checking the Team tab (or anything else) during a session told everyone you had stopped. It
   now runs for the whole workout and says "stopped" only when you finish or discard it.
 - **A locked phone between sets no longer drops you.** A locked phone sends nothing; you used to
-  vanish after 70 seconds. You now stay listed for up to 15 minutes without a heartbeat, the app
+  vanish after 70 seconds. You now stay listed for up to 5 minutes without a heartbeat, the app
   pings the moment you unlock it, and someone following your session sees "Phone locked or app
   in the background · last update 3 min ago" instead of a frozen screen.
 

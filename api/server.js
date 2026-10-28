@@ -376,9 +376,9 @@ function readBody(req) {
    in the shared store instead, and simply goes stale when the pings stop. */
 // How long "training now" outlives the last heartbeat. Not a few heartbeats' worth: a phone
 // locked between sets runs no timers and sends nothing until it is picked up again, and a rest
-// with the screen off is easily three or four minutes. A workout that ends says so explicitly
+// with the screen off is easily two or three minutes. A workout that ends says so explicitly
 // (active: false); this only covers one that was abandoned without finishing.
-const PRESENCE_TTL = 15 * 60000;
+const PRESENCE_TTL = 5 * 60000;
 const liveKey = uid => 'live:' + uid;
 async function livePresence(uid) {
   const p = await store.getValue(liveKey(uid)).catch(() => null);
