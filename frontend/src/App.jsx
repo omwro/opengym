@@ -14,6 +14,7 @@ import ErrorBoundary from './components/ErrorBoundary.jsx'
 import Modals from './components/Modals.jsx'
 import Toast from './components/Toast.jsx'
 import RestTimer from './components/RestTimer.jsx'
+import { useWhatsNew } from './components/WhatsNew.jsx'
 import Login from './views/Login.jsx'
 import Home from './views/Home.jsx'
 import Plan from './views/Plan.jsx'
@@ -54,6 +55,8 @@ function Shell() {
   useEffect(() => { window.scrollTo(0, 0) }, [loc.pathname])
   // bound to the workout, not to the route — checking Stats mid-session keeps the screen on
   useWakeLock(!!S.active && S.keepAwake !== false)
+  // After an update: what changed, once — not on the sign-in screen and not over a workout.
+  useWhatsNew(!!(user || isGuest) && !S.active)
 
   const authed = user || isGuest
   if (!ready && !authed) return (

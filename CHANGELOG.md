@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### What's new, after every update
+
+When openGym has been updated since you last opened it, it shows what changed — the new
+entries from this changelog, once, the first time you open it. Never over a running workout
+(it waits until the workout is done), and never on a new install. Settings → Data →
+**What's new** shows the latest changes any time.
+
 ### Confirming your working weight: bigger jumps, and 0
 
 The “confirm the weight you worked with” dialog after an exercise gets **+2, +2.5 and +5**
