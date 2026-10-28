@@ -65,8 +65,8 @@ export function loadStarterPlan() {
 const W_LO = 1
 const wHi = unit => (unit === 'lb' ? 660 : 300)
 // `min`: a body weight is never 0, but a working weight can be — a bodyweight exercise, or an
-// empty machine. `jumps`: extra one-tap increases, for the working-weight dialog where the next
-// plate or dumbbell is +2, +2.5 or +5 rather than half a kilo.
+// empty machine. `jumps`: extra one-tap steps both ways, for the working-weight dialog where the
+// next plate or dumbbell is ±2, ±2.5 or ±5 rather than half a kilo.
 function WeightInput({ value, setValue, unit, min = W_LO, jumps = [] }) {
   const W_HI = wHi(unit)
   const clamp = x => Math.max(min, Math.min(W_HI, Math.round((x || 0) * 10) / 10))
@@ -78,15 +78,20 @@ function WeightInput({ value, setValue, unit, min = W_LO, jumps = [] }) {
       <div className="bw-read">{fmtNum(value)}<span className="u"> {unit}</span></div>
       <button className="bw-pm" onClick={() => onSlide(value + 0.1)} aria-label="plus 0.1"><Icon name="plus" /></button>
     </div>
-    <div className="chips" style={{ justifyContent: 'center', margin: '8px 0' }}>
-      <button className="chip" onClick={() => onSlide(value - 1)}>−1</button>
-      <button className="chip" onClick={() => onSlide(value - 0.5)}>−0.5</button>
-      <button className="chip" onClick={() => onSlide(value + 0.5)}>+0.5</button>
-      <button className="chip" onClick={() => onSlide(value + 1)}>+1</button>
-    </div>
-    {jumps.length > 0 && <div className="chips" style={{ justifyContent: 'center', margin: '0 0 8px' }}>
-      {jumps.map(j => <button key={j} className="chip" onClick={() => onSlide(value + j)}>+{fmtNum(j)}</button>)}
-    </div>}
+    {/* With extra jumps the steps sort into a minus row over a plus row, lined up so each
+        column is one size, smallest on the left: −0.5 −1 −2 −2.5 −5 over +0.5 +1 +2 +2.5 +5.
+        Without them it stays the one row it always was. */}
+    {(() => {
+      const steps = [...new Set([0.5, 1, ...jumps])].sort((a, b) => a - b)
+      const chip = d => <button key={d} className="chip" onClick={() => onSlide(value + d)}>{d < 0 ? '−' : '+'}{fmtNum(Math.abs(d))}</button>
+      const plus = steps.map(d => chip(d))
+      return jumps.length
+        ? <>
+          <div className="chips" style={{ justifyContent: 'center', margin: '8px 0 6px' }}>{steps.map(d => chip(-d))}</div>
+          <div className="chips" style={{ justifyContent: 'center', margin: '0 0 8px' }}>{plus}</div>
+        </>
+        : <div className="chips" style={{ justifyContent: 'center', margin: '8px 0' }}>{[...steps].reverse().map(d => chip(-d))}{plus}</div>
+    })()}
     <Slider value={sv} min={min} max={W_HI} step={0.5} onChange={onSlide} />
   </>
 }

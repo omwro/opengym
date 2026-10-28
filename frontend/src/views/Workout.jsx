@@ -8,7 +8,6 @@ import { effectiveRoutine, lastEntryFor, bestWeightFor, buildSets, setsDoneActiv
 import { fmtNum, fmtDate, todayISO, exCount, DAYN } from '../lib/format.js'
 import { beep, vibrate } from '../lib/sound.js'
 import { t } from '../lib/i18n.js'
-import { api } from '../lib/api.js'
 import Media from '../components/Media.jsx'
 import { startFlow, freestylePicker, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, finishWorkout, workoutCompleteSheet, confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
@@ -462,48 +461,7 @@ function ActiveWorkout() {
   // the last session is there when you get to that machine.
   useEffect(() => { useNotes.getState().load() }, [])
 
-  // Live-presence heartbeat so the admin dashboard can show who's training now. Signed-in only —
-  // guests have no server session. Reads fresh state each tick so progress stays current.
-  useEffect(() => {
-    if (!useStore.getState().user) return
-    let stopped = false
-    const ping = active => {
-      const A2 = useStore.getState().S.active
-      if (!A2) return
-      const u = supersetUnits(A2.entries)
-      const c = Math.min(A2.cur, Math.max(0, A2.entries.length - 1))
-      const ui = u.findIndex(x => x.includes(c))
-      const tot = A2.entries.reduce((n, e) => n + e.sets.length, 0)
-      api('/api/activity', { method: 'POST', body: JSON.stringify({
-        active, name: A2.name, exIdx: ui + 1, exTotal: u.length,
-        setsDone: setsDoneActive(A2), setsTotal: tot, startedAt: A2.start,
-        // what a teammate following along needs: where you are, and every set so far
-        cur: c,
-        entries: A2.entries.map(e => ({ id: e.id, target: { reps: e.target?.reps, repsMin: e.target?.repsMin, mode: e.target?.mode },
-          sets: e.sets.map(x => ({ w: x.w, r: x.r, min: x.min, speed: x.speed, sec: x.sec, done: !!x.done })) }))
-      }) }).catch(() => {})
-    }
-    ping(true)
-    const iv = setInterval(() => { if (!stopped) ping(true) }, 20000)
-    // Someone following you should see a set the moment you tick it, not up to 20 s later. So
-    // any change to where you are or what you have logged is sent straight away — throttled,
-    // because typing a weight changes it on every keystroke.
-    let lastSig = '', pending = null
-    const sig = () => { const A2 = useStore.getState().S.active; return A2 ? JSON.stringify([A2.cur, A2.entries.map(e => [e.id, e.sets.map(x => [x.w, x.r, x.done])])]) : '' }
-    const unsub = useStore.subscribe(() => {
-      const now = sig()
-      if (now === lastSig || stopped) return
-      lastSig = now
-      clearTimeout(pending)
-      pending = setTimeout(() => { if (!stopped) ping(true) }, 1500)
-    })
-    return () => {
-      stopped = true; clearInterval(iv); clearTimeout(pending); unsub()
-      // best-effort "left" signal: sendBeacon survives a tab close, fetch covers in-app nav
-      try { navigator.sendBeacon?.('/api/activity', new Blob([JSON.stringify({ active: false })], { type: 'application/json' })) } catch { /* */ }
-      api('/api/activity', { method: 'POST', body: JSON.stringify({ active: false }) }).catch(() => {})
-    }
-  }, [])
+  // The "training now" heartbeat runs app-wide, not here — see lib/presence.js.
 
   return <div className="narrow">
     <div className="hdr">

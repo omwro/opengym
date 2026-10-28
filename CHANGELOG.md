@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### −2, −2.5 and −5 next to the +2, +2.5 and +5
+
+The working-weight dialog after an exercise steps down by the same amounts it steps up, in two
+rows lined up by size, smallest on the left: −0.5 −1 −2 −2.5 −5 on top, +0.5 +1 +2 +2.5 +5
+below. It still never goes below 0.
+
+### "Training now" stays on while you train
+
+Teammates sometimes lost sight of you mid-workout until you reopened the app. Two causes,
+both fixed:
+
+- **Opening another tab no longer ends it.** The heartbeat lived on the workout screen, so
+  checking the Team tab (or anything else) during a session told everyone you had stopped. It
+  now runs for the whole workout and says "stopped" only when you finish or discard it.
+- **A locked phone between sets no longer drops you.** A locked phone sends nothing; you used to
+  vanish after 70 seconds. You now stay listed for up to 5 minutes without a heartbeat, the app
+  pings the moment you unlock it, and someone following your session sees "Phone locked or app
+  in the background · last update 3 min ago" instead of a frozen screen.
+
+A workout with no exercises yet shows as "training now · just started".
+
 ### What's new, after every update
 
 When openGym has been updated since you last opened it, it shows what changed — the new
