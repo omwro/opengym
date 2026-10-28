@@ -86,7 +86,8 @@ export function defaultConfig(id, mode) {
 export function exLine(cfg, unit) {
   const mode = modeOf(cfg)
   const n = cfg.sets || 1
-  const load = cfg.weight ? ' · ' + fmtNum(cfg.weight) + ' ' + unit : ''
+  const wu = Array.isArray(cfg.warmup) && cfg.warmup.length ? ` · +${cfg.warmup.length} warm-up` : ''
+  const load = (cfg.weight ? ' · ' + fmtNum(cfg.weight) + ' ' + unit : '') + wu
   if (mode === 'cardio') return `${n} × ${cfg.min || 20} min @ ${fmtNum(cfg.speed || 8)} km/h`
   if (mode === 'time') return `${n} × ${fmtSec(cfg.sec || 45)}${load}`
   return `${n} × ${repsText(cfg)}${load}`

@@ -51,6 +51,11 @@ export function installBackstack(win, sheets) {
   win.addEventListener('popstate', e => {
     const prev = cur
     cur = h.state
+    // A new navigation, not a step back: following a link to another #/route (or a tapped
+    // notification opening one) fires popstate too, on a brand-new entry with no state. The
+    // router stamps every entry it makes and these entries are ours, so a stateless one is
+    // never a back press — it belongs to the router untouched.
+    if (cur == null) return
     const top = sheets.top()
     // Back popped the top sheet's own entry: close that sheet and nothing else. The router is
     // kept out of it — the URL is the screen's and has not changed.

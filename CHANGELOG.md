@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Confirming your working weight: bigger jumps, and 0
+
+The “confirm the weight you worked with” dialog after an exercise gets **+2, +2.5 and +5**
+buttons for the next dumbbell or plate, and its weight can go down to **0** (a bodyweight
+exercise, an empty machine) instead of stopping at 1. The body-weight check-in keeps its
+minimum of 1.
+
+### Warm-up sets
+
+Each exercise in a routine can have warm-up sets — as many as you like (up to six), each a
+**percentage of the working weight** (“50 % × 10”) or a **fixed weight** (“20 kg × 8”). Add
+them in the exercise's settings in Plan; a percentage shows what it comes to at the weight the
+exercise is at now, and *Add warm-up set* suggests a ramp (50 % × 10 → 70 % × 5 → 85 % × 3).
+
+In the workout they sit above the working sets, marked **W**. Percentage warm-ups follow the
+working weight: change it and they move with it until you tick them. Type a warm-up's weight
+yourself and it keeps what you typed. Warm-ups are kept apart from the working sets, so they
+never count towards progression or deloads, records, estimated 1RM, volume or set counts — a
+50 % × 10 can never look like a missed set of 5. A finished workout shows them on their own
+line, and they travel with a shared plan.
+
+Also fixed: following a link to another screen right after closing a sheet no longer gets
+undone by the back-button handling.
+
 ### Home sessions, and Home's quick starts in Settings
 
 - 🏠 **Home session**: a one-tap start on Home for training at home. It starts empty like

@@ -21,6 +21,7 @@ import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, weightStep, POLICIES_FOR, POLICY_NAME, POLICY_DESC } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
 import { freestyleTarget, routineFromWorkout } from './lib/freestyle.js'
+import { normalizeWarmup, warmupWeight, warmFor, MAX_WARMUP } from './lib/warmup.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -63,10 +64,13 @@ export function loadStarterPlan() {
 // below an everyday squat.
 const W_LO = 1
 const wHi = unit => (unit === 'lb' ? 660 : 300)
-function WeightInput({ value, setValue, unit }) {
+// `min`: a body weight is never 0, but a working weight can be — a bodyweight exercise, or an
+// empty machine. `jumps`: extra one-tap increases, for the working-weight dialog where the next
+// plate or dumbbell is +2, +2.5 or +5 rather than half a kilo.
+function WeightInput({ value, setValue, unit, min = W_LO, jumps = [] }) {
   const W_HI = wHi(unit)
-  const clamp = x => Math.max(W_LO, Math.min(W_HI, Math.round((x || 0) * 10) / 10))
-  const sv = Math.max(W_LO, Math.min(W_HI, value))
+  const clamp = x => Math.max(min, Math.min(W_HI, Math.round((x || 0) * 10) / 10))
+  const sv = Math.max(min, Math.min(W_HI, value))
   const onSlide = v => setValue(clamp(v))
   return <>
     <div className="bwstep">
@@ -80,7 +84,10 @@ function WeightInput({ value, setValue, unit }) {
       <button className="chip" onClick={() => onSlide(value + 0.5)}>+0.5</button>
       <button className="chip" onClick={() => onSlide(value + 1)}>+1</button>
     </div>
-    <Slider value={sv} min={W_LO} max={W_HI} step={0.5} onChange={onSlide} />
+    {jumps.length > 0 && <div className="chips" style={{ justifyContent: 'center', margin: '0 0 8px' }}>
+      {jumps.map(j => <button key={j} className="chip" onClick={() => onSlide(value + j)}>+{fmtNum(j)}</button>)}
+    </div>}
+    <Slider value={sv} min={min} max={W_HI} step={0.5} onChange={onSlide} />
   </>
 }
 
@@ -481,6 +488,48 @@ function ProgressionFields({ ex, mode, c, setC, routine, unit }) {
   </>
 }
 
+/* Warm-up sets for one exercise in a routine: each a percentage of the working weight or a
+   fixed weight, with its own reps; as many as you like up to MAX_WARMUP, done in order before
+   the working sets. A percentage shows what it comes to at the weight this exercise is at now. */
+function WarmupFields({ list, setList, workW, unit, wStep }) {
+  const put = (i, patch) => setList(list.map((x, k) => (k === i ? patch : x)))
+  const add = () => {
+    const last = list[list.length - 1]
+    // A ramp: 50 % × 10, then 70 % × 5, then 85 % × 3 — each closer to the work, fewer reps.
+    const next = !last ? { pct: 50, reps: 10 }
+      : last.pct != null ? { pct: Math.min(95, last.pct + (last.pct < 70 ? 20 : 15)), reps: Math.max(1, last.reps - (last.reps > 5 ? 5 : 2)) }
+        : { w: Math.round((last.w + wStep * 4) * 10) / 10, reps: Math.max(1, last.reps - 2) }
+    setList([...list, next])
+  }
+  const switchKind = (i, kind) => {
+    const x = list[i]
+    if (kind === 'w' && x.pct != null) put(i, { w: warmupWeight(x, workW, wStep) || wStep * 8, reps: x.reps })
+    if (kind === 'pct' && x.pct == null) put(i, { pct: workW > 0 ? Math.min(100, Math.max(5, Math.round(x.w / workW * 20) * 5)) : 50, reps: x.reps })
+  }
+  return <>
+    <h4 className="sec">{t('Warm-up sets')}</h4>
+    {!list.length && <div className="small dim" style={{ marginBottom: 8 }}>{t('None. Warm-up sets come before the working sets and don’t count towards progression, records or volume.')}</div>}
+    {list.map((x, i) => <div key={i} className="card" style={{ padding: 10, marginBottom: 8 }}>
+      <div className="row between" style={{ marginBottom: 8, gap: 8 }}>
+        <span className="small muted">{t('Warm-up {0}', i + 1)}{x.pct != null && workW > 0 ? ' · ≈ ' + fmtNum(warmupWeight(x, workW, wStep)) + ' ' + unit : ''}</span>
+        <div className="row" style={{ gap: 6, flex: 'none' }}>
+          <Segmented className="seg-inline" value={x.pct != null ? 'pct' : 'w'} onChange={v => switchKind(i, v)}
+            options={[{ value: 'pct', label: '%' }, { value: 'w', label: unit }]} />
+          <button className="iconbtn" aria-label={t('Remove')} onClick={() => setList(list.filter((_, k) => k !== i))}><Icon name="xmark" /></button>
+        </div>
+      </div>
+      <div className="row cfgrow">
+        {x.pct != null
+          ? <Stepper label={t('% of working weight')} value={x.pct} step={5} decimal={false} onChange={v => put(i, { ...x, pct: v })} />
+          : <Stepper label={t('Weight ({0})', unit)} value={x.w} step={wStep} onChange={v => put(i, { ...x, w: v })} />}
+        <Stepper label={t('Reps')} value={x.reps} step={1} decimal={false} onChange={v => put(i, { ...x, reps: v })} />
+      </div>
+    </div>)}
+    <Button size="sm" icon="plus" disabled={list.length >= MAX_WARMUP} onClick={add}>{t('Add warm-up set')}</Button>
+    <div style={{ height: 18 }} />
+  </>
+}
+
 function ExConfig({ ex, existing, onSave, onDelete, close, routine }) {
   const st = useStore(s => s.S)
   const cardio = isCardio(ex.id)
@@ -510,6 +559,8 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine }) {
     else {
       let reps = Math.max(1, Math.round(c.reps) || 10)
       const out = { sets, mode: 'reps', reps, weight: Math.max(0, c.weight || 0), ...prog }
+      const warmup = normalizeWarmup(c.warmup)
+      if (warmup.length) out.warmup = warmup
       if (ranged) {
         // Typed the wrong way round is still a range: keep both numbers, in order, rather than
         // quietly flattening the bottom onto the top.
@@ -567,6 +618,8 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine }) {
     {mode === 'time' && <div className="small dim" style={{ marginBottom: 18 }}>
       {t('A timer runs while you hold the set. Leave the weight at 0 for bodyweight holds.')}
     </div>}
+    {!cardio && mode === 'reps' && <WarmupFields list={c.warmup || []} setList={l => setC(x => ({ ...x, warmup: l }))}
+      workW={Math.max(c.weight || 0, (st.exWeights[ex.id] || {}).w || 0, bestWeightFor(st, ex.id))} unit={st.unit} wStep={wStep} />}
     <ProgressionFields ex={ex} mode={mode} c={c} setC={setC} routine={routine} unit={st.unit} />
     <Button variant="primary" onClick={save}>{existing ? t('Save') : t('Add to routine')}</Button>
     {ex.custom && <><div style={{ height: 8 }} /><Button icon="pencil" onClick={() => { close(); customExSheet(ex) }}>{t('Edit or delete this exercise')}</Button></>}
@@ -740,6 +793,7 @@ function WorkoutDetail({ w, close, other }) {
         <div className="grow"><div className="tt capitalize" style={{ fontWeight: 600 }}>{ex ? ex.n : (e.n || e.id)} {w.prs && w.prs.includes(e.id) && <span className="pr"><Icon name="trophy" />PR</span>}</div>
           {/* one line per set: the kilos and reps are the point when comparing with someone */}
           {done.length ? <div className="ss" style={{ marginTop: 2 }}>
+            {e.warm?.length > 0 && <div className="dim">{t('Warm-up')} · {e.warm.map(s => `${fmtNum(s.w || 0)} × ${s.r || 0}`).join(', ')}</div>}
             {done.map((s, k) => <div key={k}>{t('Set {0}', k + 1)} · {modeOf({ ...(e.target || {}), id: e.id }) === 'reps'
               ? `${fmtNum(s.w || 0)} ${unit} × ${s.r || 0}`
               : setLabel(e.id, s, e.target)}</div>)}
@@ -821,7 +875,9 @@ export function beginWorkout(routineId, bw, { home = false } = {}) {
   // kept on the entry purely so the workout can explain the number it chose.
   const entries = (r ? r.ex : []).map(cfg => {
     const plan = nextPrescription(st, cfg, r)
-    return { id: cfg.id, sg: cfg.sg, target: { ...cfg }, plan, sets: applyPrescription(buildSets(st, cfg), plan) }
+    const sets = applyPrescription(buildSets(st, cfg), plan)
+    const warm = warmFor(cfg, sets, cfg.id, st.unit)
+    return { id: cfg.id, sg: cfg.sg, target: { ...cfg }, plan, sets, ...(warm.length ? { warm } : {}) }
   })
   update(s => {
     s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : home ? t('Home session') : t('Freestyle'), bw: bw || null, cur: 0, entries }
@@ -885,7 +941,7 @@ function TopWeight({ entryIdx, close }) {
   return <>
     <h3 className="capitalize row" style={{ gap: 8 }}><Icon name="checkCircle" style={{ color: 'var(--acc)' }} />{t('{0} done', ex.n)}</h3>
     <div className="muted small">{t('Confirm the weight you worked with — your highest becomes the default next time.')}{!unitDone && unit.length > 1 ? ' ' + t('Then finish the superset partner.') : ''}</div>
-    <WeightInput value={v} setValue={setV} unit={st.unit} />
+    <WeightInput value={v} setValue={setV} unit={st.unit} min={0} jumps={[2, 2.5, 5]} />
     <div style={{ height: 10 }} />
     {prevBest > 0 ? <div className="small dim" style={{ textAlign: 'center', marginBottom: 12 }}>{t('Previous best:')} {fmtNum(prevBest)} {st.unit}{maxSet > prevBest && <span style={{ color: 'var(--yellow)' }}> — {t('new record!')}</span>}</div> : <div style={{ height: 4 }} />}
     {unitDone ? <>
@@ -1022,7 +1078,11 @@ function doFinishWorkout() {
     // `target` (what the session prescribed) is kept alongside the sets: without it a
     // finished workout cannot say whether it hit its reps, and a timed session reads back
     // as "0 reps". It is what the progression engine works from.
-    entries: A.entries.map(e => ({ id: e.id, sets: e.sets, topW: e.topW || null, target: e.target || null })).filter(e => e.sets.some(s => s.done)),
+    entries: A.entries.map(e => {
+      // Done warm-ups are kept for the record, apart from `sets` so nothing counts them.
+      const warm = (e.warm || []).filter(s => s.done).map(({ w, r }) => ({ w, r, done: true }))
+      return { id: e.id, sets: e.sets, topW: e.topW || null, target: e.target || null, ...(warm.length ? { warm } : {}) }
+    }).filter(e => e.sets.some(s => s.done)),
     prs
   }
   w.vol = workoutVolume(w)
