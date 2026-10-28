@@ -64,10 +64,13 @@ export function loadStarterPlan() {
 // below an everyday squat.
 const W_LO = 1
 const wHi = unit => (unit === 'lb' ? 660 : 300)
-function WeightInput({ value, setValue, unit }) {
+// `min`: a body weight is never 0, but a working weight can be — a bodyweight exercise, or an
+// empty machine. `jumps`: extra one-tap increases, for the working-weight dialog where the next
+// plate or dumbbell is +2, +2.5 or +5 rather than half a kilo.
+function WeightInput({ value, setValue, unit, min = W_LO, jumps = [] }) {
   const W_HI = wHi(unit)
-  const clamp = x => Math.max(W_LO, Math.min(W_HI, Math.round((x || 0) * 10) / 10))
-  const sv = Math.max(W_LO, Math.min(W_HI, value))
+  const clamp = x => Math.max(min, Math.min(W_HI, Math.round((x || 0) * 10) / 10))
+  const sv = Math.max(min, Math.min(W_HI, value))
   const onSlide = v => setValue(clamp(v))
   return <>
     <div className="bwstep">
@@ -81,7 +84,10 @@ function WeightInput({ value, setValue, unit }) {
       <button className="chip" onClick={() => onSlide(value + 0.5)}>+0.5</button>
       <button className="chip" onClick={() => onSlide(value + 1)}>+1</button>
     </div>
-    <Slider value={sv} min={W_LO} max={W_HI} step={0.5} onChange={onSlide} />
+    {jumps.length > 0 && <div className="chips" style={{ justifyContent: 'center', margin: '0 0 8px' }}>
+      {jumps.map(j => <button key={j} className="chip" onClick={() => onSlide(value + j)}>+{fmtNum(j)}</button>)}
+    </div>}
+    <Slider value={sv} min={min} max={W_HI} step={0.5} onChange={onSlide} />
   </>
 }
 
@@ -935,7 +941,7 @@ function TopWeight({ entryIdx, close }) {
   return <>
     <h3 className="capitalize row" style={{ gap: 8 }}><Icon name="checkCircle" style={{ color: 'var(--acc)' }} />{t('{0} done', ex.n)}</h3>
     <div className="muted small">{t('Confirm the weight you worked with — your highest becomes the default next time.')}{!unitDone && unit.length > 1 ? ' ' + t('Then finish the superset partner.') : ''}</div>
-    <WeightInput value={v} setValue={setV} unit={st.unit} />
+    <WeightInput value={v} setValue={setV} unit={st.unit} min={0} jumps={[2, 2.5, 5]} />
     <div style={{ height: 10 }} />
     {prevBest > 0 ? <div className="small dim" style={{ textAlign: 'center', marginBottom: 12 }}>{t('Previous best:')} {fmtNum(prevBest)} {st.unit}{maxSet > prevBest && <span style={{ color: 'var(--yellow)' }}> — {t('new record!')}</span>}</div> : <div style={{ height: 4 }} />}
     {unitDone ? <>

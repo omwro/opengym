@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Confirming your working weight: bigger jumps, and 0
+
+The “confirm the weight you worked with” dialog after an exercise gets **+2, +2.5 and +5**
+buttons for the next dumbbell or plate, and its weight can go down to **0** (a bodyweight
+exercise, an empty machine) instead of stopping at 1. The body-weight check-in keeps its
+minimum of 1.
+
 ### Warm-up sets
 
 Each exercise in a routine can have warm-up sets — as many as you like (up to six), each a
