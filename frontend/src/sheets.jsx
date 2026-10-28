@@ -78,20 +78,19 @@ function WeightInput({ value, setValue, unit, min = W_LO, jumps = [] }) {
       <div className="bw-read">{fmtNum(value)}<span className="u"> {unit}</span></div>
       <button className="bw-pm" onClick={() => onSlide(value + 0.1)} aria-label="plus 0.1"><Icon name="plus" /></button>
     </div>
-    {/* With extra jumps the steps sort into a minus row and a plus row, each from the biggest
-        step to the smallest away from the middle: −5 −2.5 −2 −1 −0.5 over +0.5 +1 +2 +2.5 +5.
+    {/* With extra jumps the steps sort into a minus row over a plus row, lined up so each
+        column is one size, smallest on the left: −0.5 −1 −2 −2.5 −5 over +0.5 +1 +2 +2.5 +5.
         Without them it stays the one row it always was. */}
     {(() => {
       const steps = [...new Set([0.5, 1, ...jumps])].sort((a, b) => a - b)
       const chip = d => <button key={d} className="chip" onClick={() => onSlide(value + d)}>{d < 0 ? '−' : '+'}{fmtNum(Math.abs(d))}</button>
-      const minus = [...steps].reverse().map(d => chip(-d))
       const plus = steps.map(d => chip(d))
       return jumps.length
         ? <>
-          <div className="chips" style={{ justifyContent: 'center', margin: '8px 0 6px' }}>{minus}</div>
+          <div className="chips" style={{ justifyContent: 'center', margin: '8px 0 6px' }}>{steps.map(d => chip(-d))}</div>
           <div className="chips" style={{ justifyContent: 'center', margin: '0 0 8px' }}>{plus}</div>
         </>
-        : <div className="chips" style={{ justifyContent: 'center', margin: '8px 0' }}>{minus}{plus}</div>
+        : <div className="chips" style={{ justifyContent: 'center', margin: '8px 0' }}>{[...steps].reverse().map(d => chip(-d))}{plus}</div>
     })()}
     <Slider value={sv} min={min} max={W_HI} step={0.5} onChange={onSlide} />
   </>

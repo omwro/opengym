@@ -5,8 +5,8 @@
 ### −2, −2.5 and −5 next to the +2, +2.5 and +5
 
 The working-weight dialog after an exercise steps down by the same amounts it steps up, in two
-rows: all the minus steps on top (−5 −2.5 −2 −1 −0.5), all the plus steps below
-(+0.5 +1 +2 +2.5 +5). It still never goes below 0.
+rows lined up by size, smallest on the left: −0.5 −1 −2 −2.5 −5 on top, +0.5 +1 +2 +2.5 +5
+below. It still never goes below 0.
 
 ### "Training now" stays on while you train
 
