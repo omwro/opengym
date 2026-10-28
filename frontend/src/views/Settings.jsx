@@ -15,6 +15,7 @@ import { coachAvailable, hasConsent } from '../lib/coach.js'
 import { forgetCoach } from '../lib/coach-api.js'
 import Icon from '../components/Icon.jsx'
 import { Section, Row, SelectRow, Switch, Segmented, Button, TextField, NumberField } from '../components/ui.jsx'
+import { whatsNewSheet } from '../components/WhatsNew.jsx'
 
 export default function Settings() {
   const nav = useNavigate()
@@ -206,6 +207,7 @@ export default function Settings() {
 
     {/* ---------- data: fill it, bring things over, back it up, wipe it ---------- */}
     <Section title={t('Data')}>
+      <Row icon="lightbulb" iconTint="var(--yellow)" title={t('What’s new')} subtitle={t('The latest changes to openGym')} accessory="chevron" onClick={whatsNewSheet} />
       <Row icon="sparkles" iconTint="var(--acc)" title={t('Load starter plan (PPL)')} accessory="chevron" onClick={loadStarterPlan} />
       <Row icon="shuffle" iconTint="var(--teal)" title={t('Import from another app')}
         subtitle={t('FitNotes, Strong, Hevy — or body weight from Apple Health')}

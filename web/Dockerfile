@@ -12,6 +12,8 @@ WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci 2>/dev/null || npm install
 COPY frontend/ ./
+# the "What's new" sheet is built from the repository's changelog (see vite.config.js)
+COPY CHANGELOG.md /CHANGELOG.md
 RUN npm run build
 
 FROM nginx:alpine
