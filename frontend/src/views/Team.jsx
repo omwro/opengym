@@ -78,7 +78,9 @@ function MemberRow({ m, onOpen }) {
         {m.live
           // exIdx arrives 1-based — the heartbeat sends position + 1 — so it is shown as is.
           // Adding one here again read "exercise 2 of 6" on the first and "7 of 6" on the last.
-          ? t('training now · exercise {0} of {1}', Math.min(m.live.exIdx || 1, m.live.exTotal || m.live.exIdx || 1), m.live.exTotal || '?')
+          ? (m.live.exTotal
+            ? t('training now · exercise {0} of {1}', Math.min(m.live.exIdx || 1, m.live.exTotal), m.live.exTotal)
+            : t('training now · just started'))
           : m.last
             ? t(m.week === 1 ? '{0} session this week · last {1}' : '{0} sessions this week · last {1}', m.week, rel(m.last))
             : t('no sessions logged yet')}
@@ -219,9 +221,13 @@ function LiveSheet({ id, name }) {
     {!d ? <div className="muted small">{t('Loading…')}</div>
       : gone ? <div className="empty small">{t('{0} is not training right now — the workout may just have finished.', name)}</div>
         : <>
-          <div className="muted small" style={{ marginBottom: 10 }}>
+          <div className="muted small" style={{ marginBottom: live.updatedAt && Date.now() - live.updatedAt > 90000 ? 4 : 10 }}>
             {live.name} · <Clock since={live.startedAt} /> · {t('{0} sets', live.setsDone + '/' + live.setsTotal)}
           </div>
+          {/* A locked phone sends nothing between sets; say so rather than look frozen. */}
+          {live.updatedAt && Date.now() - live.updatedAt > 90000 && <div className="dim small" style={{ marginBottom: 10 }}>
+            {t('Phone locked or app in the background · last update {0} min ago', Math.max(1, Math.round((Date.now() - live.updatedAt) / 60000)))}
+          </div>}
           <div className="wprog" style={{ marginBottom: 14 }}><i style={{ width: (live.setsTotal ? live.setsDone / live.setsTotal * 100 : 0) + '%' }} /></div>
           {(live.entries || []).map((e, i) => {
             const now = i === live.cur

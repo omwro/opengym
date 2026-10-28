@@ -374,7 +374,11 @@ function readBody(req) {
    which on a serverless host means each instance knew only about the pings that happened to
    land on it — "training now" came and went depending on which instance answered. It is kept
    in the shared store instead, and simply goes stale when the pings stop. */
-const PRESENCE_TTL = 70000;               // ~3.5x the 20s idle heartbeat
+// How long "training now" outlives the last heartbeat. Not a few heartbeats' worth: a phone
+// locked between sets runs no timers and sends nothing until it is picked up again, and a rest
+// with the screen off is easily three or four minutes. A workout that ends says so explicitly
+// (active: false); this only covers one that was abandoned without finishing.
+const PRESENCE_TTL = 15 * 60000;
 const liveKey = uid => 'live:' + uid;
 async function livePresence(uid) {
   const p = await store.getValue(liveKey(uid)).catch(() => null);

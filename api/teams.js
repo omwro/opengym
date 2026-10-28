@@ -157,7 +157,7 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
       const live = await livePresence(u.id);
       return {
         id: u.id, name: u.name, you: u.id === user.id,
-        live: live ? { exIdx: live.exIdx, exTotal: live.exTotal, setsDone: live.setsDone, setsTotal: live.setsTotal, startedAt: live.startedAt } : null,
+        live: live ? { exIdx: live.exIdx, exTotal: live.exTotal, setsDone: live.setsDone, setsTotal: live.setsTotal, startedAt: live.startedAt, updatedAt: live.updatedAt } : null,
         poke: pokeOf(team, u.id),
         ...summarize(await readState(u.id))
       };
