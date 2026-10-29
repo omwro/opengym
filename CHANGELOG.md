@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### When the whole team skips the gym
+
+When nobody on the team has been to the gym for 24 hours or more — and nobody is training
+right now — the Team page opens with 🦨 **“Nobody gymed for the past N hours. It smells like
+bitch in here!”** N counts from the most recent gym workout of anyone on the team; someone who
+never logged anything counts as not having gone, and home sessions don't count as the gym.
+It disappears the moment anyone finishes a gym workout or starts one.
+
 ### A forgotten workout finishes itself
 
 Forgot to tap Finish? A workout with no activity for an hour — no set ticked or changed, no

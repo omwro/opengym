@@ -58,6 +58,13 @@ function summarize(state) {
     // first logged session. null only for a profile that has logged nothing at all.
     avoidSince: workouts.filter(w => !w.home).reduce((m, w) => (!m || w.d > m ? w.d : m), null)
       || workouts.reduce((m, w) => (!m || w.d < m ? w.d : m), null),
+    // When the last gym workout (not a home session) ended, in ms — the team-wide "nobody gymed
+    // for N hours" counts in hours, which a date alone cannot give. A workout without an end
+    // time (an old import) counts as noon on its day. null when there is none.
+    lastGymAt: workouts.filter(w => !w.home).reduce((m, w) => {
+      const at = Number.isFinite(w.end) ? w.end : Date.parse(w.d + 'T12:00:00Z');
+      return Number.isFinite(at) && (m == null || at > m) ? at : m;
+    }, null),
     week: workouts.filter(w => w.d >= last7).length,
     vol7: vol(workouts.filter(w => w.d >= last7)),
     vol30: vol(recent),

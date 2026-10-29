@@ -28,3 +28,31 @@ describe('the "is he still alive?" nudge', () => {
     expect(inactivityNudge({ last: ago(1), avoidSince: ago(1) })).toBeNull()
   })
 })
+
+import { teamIdle } from './nudge.js'
+
+describe('nobody gymed', () => {
+  const H = 3600000, now = Date.parse('2026-10-29T20:00:00Z')
+  const m = (lastGymAt, extra = {}) => ({ id: Math.random(), lastGymAt, ...extra })
+
+  it('stays quiet while someone went within the last 24 hours', () => {
+    expect(teamIdle([m(now - 30 * H), m(now - 23 * H)], now)).toBeNull()
+  })
+  it('counts from the most recent gym workout of anyone, in whole hours', () => {
+    expect(teamIdle([m(now - 30 * H), m(now - 26.5 * H)], now))
+      .toEqual({ hours: 26, text: 'Nobody gymed for the past 26 hours. It smells like bitch in here!' })
+  })
+  it('counts someone who never logged as not having gone', () => {
+    expect(teamIdle([m(null), m(now - 48 * H)], now)?.hours).toBe(48)
+  })
+  it('with nobody ever logged, counts from when the team began', () => {
+    expect(teamIdle([m(null), m(null)], now, now - 72 * H)?.hours).toBe(72)
+    expect(teamIdle([m(null)], now, null)).toBeNull()
+  })
+  it('says nothing while someone is training right now', () => {
+    expect(teamIdle([m(now - 50 * H, { live: {} }), m(null)], now)).toBeNull()
+  })
+  it('falls back to the date from an older server', () => {
+    expect(teamIdle([{ last: '2026-10-27' }], now)?.hours).toBe(56)
+  })
+})

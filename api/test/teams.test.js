@@ -397,3 +397,16 @@ test('the feed marks home sessions', async () => {
   const res = await h.as(a).call('GET /api/team/feed');
   assert.equal(res.body.feed[0].home, true);
 });
+
+/* ---------------- last gym workout, to the hour ---------------- */
+
+test('lastGymAt is when the last non-home workout ended, falling back to noon on its day', () => {
+  const s = _internals.summarize({ workouts: [
+    { id: 'a', d: '2026-10-20', end: Date.parse('2026-10-20T18:30:00Z'), vol: 0, entries: [] },
+    { id: 'b', d: '2026-10-22', vol: 0, entries: [] },
+    { id: 'c', d: '2026-10-25', end: Date.parse('2026-10-25T09:00:00Z'), vol: 0, entries: [], home: true }
+  ] });
+  assert.equal(s.lastGymAt, Date.parse('2026-10-22T12:00:00Z'));
+  assert.equal(_internals.summarize({ workouts: [{ id: 'h', d: '2026-10-25', vol: 0, entries: [], home: true }] }).lastGymAt, null);
+  assert.equal(_internals.summarize({ workouts: [] }).lastGymAt, null);
+});
