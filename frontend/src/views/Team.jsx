@@ -14,7 +14,7 @@ import { buildPlanBundle, parsePlan } from '../lib/plan-share.js'
 import { confirmSheet, planImportSheet, workoutDetailSheet } from '../sheets.jsx'
 import * as T from '../lib/team-api.js'
 import { useTeam } from '../lib/team-api.js'
-import { inactivityNudge } from '../lib/nudge.js'
+import { inactivityNudge, teamIdle } from '../lib/nudge.js'
 
 // The 72-hour mention reads as ordinary text; only more than six days of silence gets the yellow and the eyes.
 const nudgeStyle = n => (n.level === 'strong' ? { color: 'var(--yellow)' } : { color: 'var(--label)' })
@@ -425,6 +425,17 @@ export default function Team() {
       <div><h1>{team.name}</h1><div className="sub">{t(team.members.length === 1 ? '{0} member' : '{0} members', team.members.length)}</div></div>
       <button className="iconbtn" onClick={rename} aria-label={t('Rename team')}><Icon name="pencil" /></button>
     </div>
+
+    {/* The whole team has stayed away from the gym for a day or more (lib/nudge.js). */}
+    {(() => {
+      const idle = teamIdle(team.members, Date.now(), team.createdAt)
+      return idle && <div className="card" style={{ borderColor: 'var(--red)' }}>
+        <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+          <span style={{ fontSize: 28, lineHeight: 1 }} aria-hidden="true">🦨</span>
+          <div style={{ fontWeight: 600, lineHeight: 1.35 }}>{idle.text}</div>
+        </div>
+      </div>
+    })()}
 
     {liveNow.length > 0 && <div className="card" style={{ borderColor: 'var(--orange)' }}>
       <div className="row" style={{ gap: 9 }}>
