@@ -5,7 +5,7 @@ import { EXDB, EXIDX, BODYPARTS, isCardio, allExercises, equipmentOf } from './l
 import { fmtDate, fmtNum, fmtVol, fmtDur, durPart, todayISO, uid, exCount, DAYN, MONTHS_LONG, ACCENTS } from './lib/format.js'
 import { lastEntryFor, bestWeightFor, buildSets, effectiveRoutineId, workoutVolume, setsDone, setsDoneActive, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf } from './lib/history.js'
 import { beep, vibrate } from './lib/sound.js'
-import { t, instrFor, getLang, INSTR_LANGS } from './lib/i18n.js'
+import { t, instrFor, getLang, INSTR_LANGS, dateLocale } from './lib/i18n.js'
 import { nav } from './lib/nav.js'
 import { starterRoutines } from './lib/starter.js'
 import Media, { Thumb } from './components/Media.jsx'
@@ -1034,6 +1034,9 @@ function FinishSummary({ w, prs, e1prs = [], close }) {
   return <div style={{ textAlign: 'center', padding: '8px 0' }}>
     <div style={{ fontSize: 44, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}><Icon name="trophy" /></div>
     <h3 style={{ margin: '8px 0' }}>{t('Workout complete!')}</h3>
+    {w.auto && <div className="muted small" style={{ marginBottom: 10 }}>
+      {t('Finished automatically after an hour without activity, at {0}.', new Date(w.end).toLocaleTimeString(dateLocale(), { hour: '2-digit', minute: '2-digit' }))}
+    </div>}
     <div className="tiles" style={{ textAlign: 'left' }}>
       <div className="tile"><div className="l">{t('Duration')}</div><div className="v" style={{ fontSize: '1.1rem' }}>{fmtDur(w.end - w.start)}</div></div>
       <div className="tile"><div className="l">{t('Volume')}</div><div className="v" style={{ fontSize: '1.1rem' }}>{fmtVol(w.vol, st.unit)}</div></div>
@@ -1063,7 +1066,10 @@ export function finishWorkout() {
   if (done < total) { confirmSheet({ title: t('Finish early?'), message: t(total - done === 1 ? '{0} set still unchecked. Finish the workout now?' : '{0} sets still unchecked. Finish the workout now?', total - done), confirmText: t('Finish workout'), onConfirm: doFinishWorkout }); return }
   doFinishWorkout()
 }
-function doFinishWorkout() {
+// `end`: when the workout ended — now, or for one finished automatically, its last activity.
+// `auto`: finished by the app after an hour without activity (lib/autofinish.js) — no fanfare,
+// it is shown the next time the app is looked at, and the summary says why.
+function doFinishWorkout({ end = Date.now(), auto = false } = {}) {
   const st = S()
   const A = st.active
   if (!A) return
@@ -1078,7 +1084,8 @@ function doFinishWorkout() {
     if (rec && !prs.includes(e.id)) e1prs.push({ id: e.id, ...rec })
   })
   const w = {
-    id: A.id, d: A.d, start: A.start, end: Date.now(), routineId: A.routineId, name: A.name, bw: A.bw,
+    id: A.id, d: A.d, start: A.start, end: Math.max(A.start, end), routineId: A.routineId, name: A.name, bw: A.bw,
+    ...(auto ? { auto: true } : {}),
     ...(A.home ? { home: true } : {}),
     // `target` (what the session prescribed) is kept alongside the sets: without it a
     // finished workout cannot say whether it hit its reps, and a timed session reads back
@@ -1100,6 +1107,24 @@ function doFinishWorkout() {
     s.active = null
   })
   useUI.getState().stopRest()
-  beep(snd(), 1047, 0.4); beep(snd(), 1319, 0.4, 0.14); beep(snd(), 1568, 0.4, 0.28); beep(snd(), 2093, 0.8, 0.42)
+  if (!auto) { beep(snd(), 1047, 0.4); beep(snd(), 1319, 0.4, 0.14); beep(snd(), 1568, 0.4, 0.28); beep(snd(), 2093, 0.8, 0.42) }
   ui().openSheet(close => <FinishSummary w={w} prs={prs} e1prs={e1prs} close={close} />, { kind: 'center', locked: true })
+}
+
+/**
+ * A workout left running for an hour with nothing happening (lib/autofinish.js). With sets
+ * logged it is saved as it stood at `endAt`; with nothing logged there is nothing to keep, so it
+ * is cleared instead of leaving an empty session in the history.
+ */
+export function autoFinishWorkout(endAt) {
+  const A = S().active
+  if (!A) return
+  if (!setsDoneActive(A)) {
+    update(s => { s.active = null })
+    ui().stopRest()
+    toast(t('Your unfinished workout had nothing logged and was cleared.'))
+    return
+  }
+  ui().closeAll()   // whatever was left open belonged to the workout
+  doFinishWorkout({ end: endAt, auto: true })
 }

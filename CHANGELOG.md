@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### A forgotten workout finishes itself
+
+Forgot to tap Finish? A workout with no activity for an hour — no set ticked or changed, no
+exercise added or moved to — now finishes on its own. It is saved as it stood at your last
+activity, so its duration is the time you actually trained, not the hours it sat open, and the
+summary says it was finished automatically. A workout with nothing logged is simply cleared.
+
+A locked phone runs nothing in the background, so this happens the moment the app is opened
+or picked up again, and teammates stop seeing you as "training now".
+
 ### −2, −2.5 and −5 next to the +2, +2.5 and +5
 
 The working-weight dialog after an exercise steps down by the same amounts it steps up, in two

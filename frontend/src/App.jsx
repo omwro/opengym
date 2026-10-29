@@ -7,7 +7,7 @@ import { ACCENTS } from './lib/format.js'
 import { setLang, useLang } from './lib/i18n.js'
 import { setNav } from './lib/nav.js'
 import { useWakeLock } from './lib/wakelock.js'
-import { startFlow } from './sheets.jsx'
+import { startFlow, autoFinishWorkout } from './sheets.jsx'
 import Icon from './components/Icon.jsx'
 import TabBar from './components/TabBar.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
@@ -16,6 +16,7 @@ import Toast from './components/Toast.jsx'
 import RestTimer from './components/RestTimer.jsx'
 import { useWhatsNew } from './components/WhatsNew.jsx'
 import { usePresence } from './lib/presence.js'
+import { useAutoFinish } from './lib/autofinish.js'
 import Login from './views/Login.jsx'
 import Home from './views/Home.jsx'
 import Plan from './views/Plan.jsx'
@@ -58,6 +59,8 @@ function Shell() {
   useWakeLock(!!S.active && S.keepAwake !== false)
   // "Training now" for teammates, for the whole workout — whatever screen is open.
   usePresence(useStore, !!user, S.active?.id || null)
+  // A workout left running for an hour with nothing happening finishes itself.
+  useAutoFinish(useStore, autoFinishWorkout)
   // After an update: what changed, once — not on the sign-in screen and not over a workout.
   useWhatsNew(!!(user || isGuest) && !S.active)
 
