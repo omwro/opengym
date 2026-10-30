@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Effort, side by side
+
+The Team page now opens with **Effort**: a chart of the last 8 weeks with a smooth line for
+everyone (yours drawn thicker), this week's ranking, and 🏆 the beast of last week. Tap a week to see
+everyone's score for it.
+
+The score is out of 100 and measured against **your own** plan and history, never against
+anyone else — someone just starting and someone lifting twice as much can score the same. It is
+the average of three percentages, each counting for a third, and the ranking shows all three
+(“Show up 67% · Hard 75% · Progress 100%”):
+
+- **Showing up** — workouts this week against the days you planned (3 if you plan none).
+- **Training hard** — the share of your working sets that were hard: RIR 2 or less,
+  RPE 8 or more, or, for sets you don't rate, reaching the target. Warm-ups don't count.
+- **Progress** — of the exercises you had done before, the share you improved on: a higher
+  estimated 1RM, or more reps or a longer hold where there is no weight.
+
+The (i) next to the chart explains it in the app.
+
 ### When the whole team skips the gym
 
 When nobody on the team has been to the gym for 24 hours or more — and nobody is training

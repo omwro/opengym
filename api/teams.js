@@ -14,6 +14,7 @@
  * own state blob, so there is exactly one copy of anyone's training.
  */
 import crypto from 'node:crypto';
+import { effortWeeks } from './effort.js';
 
 const MAX_PLANS = 30;
 const NOTE_MAX = 500;
@@ -59,10 +60,12 @@ function summarize(state) {
     avoidSince: workouts.filter(w => !w.home).reduce((m, w) => (!m || w.d > m ? w.d : m), null)
       || workouts.reduce((m, w) => (!m || w.d < m ? w.d : m), null),
     // When the last gym workout (not a home session) ended, in ms — the team-wide "nobody gymed
-    // for N hours" counts in hours, which a date alone cannot give. A workout without an end
-    // time (an old import) counts as noon on its day. null when there is none.
+    // for N hours" counts in hours, which a date alone cannot give. The end time is only trusted
+    // when it lies near the workout's own date: an import without one, or a device whose clock
+    // was wrong, would otherwise turn into "nobody gymed for 498161 hours". Then noon on its day.
     lastGymAt: workouts.filter(w => !w.home).reduce((m, w) => {
-      const at = Number.isFinite(w.end) ? w.end : Date.parse(w.d + 'T12:00:00Z');
+      const noon = Date.parse(w.d + 'T12:00:00Z');
+      const at = Number.isFinite(w.end) && Math.abs(w.end - noon) < 2 * dayMs ? w.end : noon;
       return Number.isFinite(at) && (m == null || at > m) ? at : m;
     }, null),
     week: workouts.filter(w => w.d >= last7).length,
@@ -162,11 +165,14 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
     createdAt: team.createdAt,
     members: await Promise.all(memberUsers().map(async u => {
       const live = await livePresence(u.id);
+      const state = await readState(u.id);
       return {
         id: u.id, name: u.name, you: u.id === user.id,
         live: live ? { exIdx: live.exIdx, exTotal: live.exTotal, setsDone: live.setsDone, setsTotal: live.setsTotal, startedAt: live.startedAt, updatedAt: live.updatedAt } : null,
         poke: pokeOf(team, u.id),
-        ...summarize(await readState(u.id))
+        // the last eight weeks of effort scores, for the team chart (effort.js)
+        effort: effortWeeks(state),
+        ...summarize(state)
       };
     })),
     plans: (team.plans || []).map(p => ({

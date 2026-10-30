@@ -410,3 +410,8 @@ test('lastGymAt is when the last non-home workout ended, falling back to noon on
   assert.equal(_internals.summarize({ workouts: [{ id: 'h', d: '2026-10-25', vol: 0, entries: [], home: true }] }).lastGymAt, null);
   assert.equal(_internals.summarize({ workouts: [] }).lastGymAt, null);
 });
+
+test('lastGymAt ignores an end time that does not belong to the workout\'s date', () => {
+  const s = _internals.summarize({ workouts: [{ id: 'a', d: '2026-10-28', end: 1, vol: 0, entries: [] }] });
+  assert.equal(s.lastGymAt, Date.parse('2026-10-28T12:00:00Z'));
+});
