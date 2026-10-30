@@ -23,6 +23,31 @@ export function colorSlots(members) {
   return Object.fromEntries(ids.map((id, i) => [id, i]))
 }
 
+/**
+ * A smooth line through the points that never overshoots them (monotone cubic, as d3's
+ * curveMonotoneX): between two weeks the curve stays between their two scores, so a bend can
+ * never suggest a week above 100, below 0, or higher than anyone actually scored.
+ */
+export function smoothPath(pts) {
+  const n = pts.length
+  if (n < 2) return n ? `M${pts[0][0]},${pts[0][1]}` : ''
+  const dx = [], m = []
+  for (let i = 0; i < n - 1; i++) { dx[i] = pts[i + 1][0] - pts[i][0]; m[i] = (pts[i + 1][1] - pts[i][1]) / dx[i] }
+  const tan = pts.map((_, i) => {
+    if (i === 0) return m[0]
+    if (i === n - 1) return m[n - 2]
+    if (m[i - 1] * m[i] <= 0) return 0                       // a peak or a valley: flat there
+    return 3 * (dx[i - 1] + dx[i]) / ((2 * dx[i] + dx[i - 1]) / m[i - 1] + (dx[i] + 2 * dx[i - 1]) / m[i])
+  })
+  const f = v => v.toFixed(1)
+  let d = `M${f(pts[0][0])},${f(pts[0][1])}`
+  for (let i = 0; i < n - 1; i++) {
+    const h = dx[i] / 3
+    d += ` C${f(pts[i][0] + h)},${f(pts[i][1] + tan[i] * h)} ${f(pts[i + 1][0] - h)},${f(pts[i + 1][1] - tan[i + 1] * h)} ${f(pts[i + 1][0])},${f(pts[i + 1][1])}`
+  }
+  return d
+}
+
 const shortWeek = iso => { const d = new Date(iso + 'T00:00:00Z'); return d.getUTCDate() + ' ' + t(MONTHS[d.getUTCMonth()]) }
 
 export default function EffortChart({ members }) {
@@ -83,9 +108,9 @@ export default function EffortChart({ members }) {
       {hover != null && <line x1={X(hover)} x2={X(hover)} y1={P.t} y2={H - P.b} stroke="var(--label-3)" strokeWidth="1" />}
       {series.map(m => {
         const color = seriesColor(slots[m.id])
-        const pts = m.effort.map((w, i) => `${X(i).toFixed(1)},${Y(w.score).toFixed(1)}`).join(' ')
+        const d = smoothPath(m.effort.map((w, i) => [X(i), Y(w.score)]))
         return <g key={m.id}>
-          <polyline points={pts} fill="none" stroke={color} strokeWidth={m.you ? 4 : 2} strokeLinejoin="round" strokeLinecap="round" />
+          <path d={d} fill="none" stroke={color} strokeWidth={m.you ? 4 : 2} strokeLinejoin="round" strokeLinecap="round" />
           {/* the current week's point, ringed in the surface so it reads where lines meet */}
           <circle cx={X(n - 1)} cy={Y(m.effort.at(-1).score)} r={m.you ? 5 : 4} fill={color} stroke="var(--surface)" strokeWidth="2" />
           {hover != null && <circle cx={X(hover)} cy={Y(m.effort[hover].score)} r={m.you ? 5 : 4} fill={color} stroke="var(--surface)" strokeWidth="2" />}

@@ -4,8 +4,8 @@
 
 ### Effort, side by side
 
-The Team page now opens with **Effort**: a chart of the last 8 weeks with a line for everyone
-(yours drawn thicker), this week's ranking, and 🏆 the beast of last week. Tap a week to see
+The Team page now opens with **Effort**: a chart of the last 8 weeks with a smooth line for
+everyone (yours drawn thicker), this week's ranking, and 🏆 the beast of last week. Tap a week to see
 everyone's score for it.
 
 The score is out of 100 and measured against **your own** plan and history, never against
