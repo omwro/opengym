@@ -1,19 +1,19 @@
 /* Effort score — a week's training scored 0–100 against the member's *own* plan and history,
  * so a beginner and a veteran compete on the same scale. Raw numbers (kilos, volume) never
- * enter it: those always favour whoever is strongest. Three parts:
+ * enter it: those always favour whoever is strongest. Three parts, each a percentage, and the
+ * score is their average — a third each, so nobody has to know a weighting to read it:
  *
- *   show 40  sessions this week against the days they planned (3 when they plan none)
- *   hard 35  the share of their working sets that were hard: RIR ≤ 2 or RPE ≥ 8 when rated,
- *            otherwise the set reached its target (reps or time); a done cardio set counts
- *   prog 25  of the exercises they did that they had done before, the share they improved on:
- *            a higher estimated 1RM (Epley, ≤ 12 reps), or more reps / a longer hold where
- *            there is no load
+ *   show  sessions this week against the days they planned (3 when they plan none), up to 100 %
+ *   hard  the share of their working sets that were hard: RIR ≤ 2 or RPE ≥ 8 when rated,
+ *         otherwise the set reached its target (reps or time); a done cardio set counts
+ *   prog  of the exercises they did that they had done before, the share they improved on:
+ *         a higher estimated 1RM (Epley, ≤ 12 reps), or more reps / a longer hold where
+ *         there is no load
  *
  * Warm-ups live outside `sets` and never count. Pure: state in, numbers out.
  */
 
 export const EFFORT_WEEKS = 8
-export const WEIGHTS = { show: 40, hard: 35, prog: 25 }
 const DAY = 86400000
 const REP_CAP = 12
 
@@ -65,7 +65,7 @@ export function weekScore(state, wk) {
   const planned = Object.values(state?.week || {}).filter(Boolean).length
   const target = Math.min(7, Math.max(1, planned || 3))
   const sessions = inWeek.length
-  const show = Math.min(1, sessions / target) * WEIGHTS.show
+  const show = Math.min(1, sessions / target) * 100
 
   let sets = 0, hard = 0
   const thisWeek = new Map()
@@ -77,7 +77,7 @@ export function weekScore(state, wk) {
     const prev = thisWeek.get(e.id)
     if (!prev || (n.key === 'load' && prev.key !== 'load') || (n.key === prev.key && n.v > prev.v)) thisWeek.set(e.id, n)
   }
-  const hardPart = sets ? (hard / sets) * WEIGHTS.hard : 0
+  const hardPart = sets ? (hard / sets) * 100 : 0
 
   let compared = 0, improved = 0
   for (const [id, cur] of thisWeek) {
@@ -91,10 +91,11 @@ export function weekScore(state, wk) {
     compared++
     if (cur.v > prior + 1e-6) improved++
   }
-  const prog = compared ? (improved / compared) * WEIGHTS.prog : 0
+  const prog = compared ? (improved / compared) * 100 : 0
 
   const r = x => Math.round(x)
-  return { wk, score: r(show + hardPart + prog), show: r(show), hard: r(hardPart), prog: r(prog), sessions, target }
+  // the parts are percentages; the score is their plain average
+  return { wk, score: r((show + hardPart + prog) / 3), show: r(show), hard: r(hardPart), prog: r(prog), sessions, target }
 }
 
 /** The last EFFORT_WEEKS weeks up to and including this one, oldest first. */

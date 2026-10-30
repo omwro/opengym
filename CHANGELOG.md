@@ -9,12 +9,14 @@ everyone (yours drawn thicker), this week's ranking, and 🏆 the beast of last 
 everyone's score for it.
 
 The score is out of 100 and measured against **your own** plan and history, never against
-anyone else — someone just starting and someone lifting twice as much can score the same:
+anyone else — someone just starting and someone lifting twice as much can score the same. It is
+the average of three percentages, each counting for a third, and the ranking shows all three
+(“Show up 67% · Hard 75% · Progress 100%”):
 
-- **Showing up (40)** — workouts this week against the days you planned (3 if you plan none).
-- **Training hard (35)** — the share of your working sets that were hard: RIR 2 or less,
+- **Showing up** — workouts this week against the days you planned (3 if you plan none).
+- **Training hard** — the share of your working sets that were hard: RIR 2 or less,
   RPE 8 or more, or, for sets you don't rate, reaching the target. Warm-ups don't count.
-- **Progress (25)** — of the exercises you had done before, the share you improved on: a higher
+- **Progress** — of the exercises you had done before, the share you improved on: a higher
   estimated 1RM, or more reps or a longer hold where there is no weight.
 
 The (i) next to the chart explains it in the app.

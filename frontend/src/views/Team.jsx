@@ -71,9 +71,10 @@ function EffortHelp() {
     <h3>{t('Effort score')}</h3>
     <div className="small" style={{ lineHeight: 1.5 }}>
       <p>{t('Every week everyone gets a score out of 100, measured against their own plan and their own history — not against anyone else. Someone just starting and someone lifting twice as much can score the same.')}</p>
-      <p><b>{t('Showing up — 40')}</b><br />{t('Workouts this week against the days you planned (3 if you plan none).')}</p>
-      <p><b>{t('Training hard — 35')}</b><br />{t('The share of your working sets that were hard: RIR 2 or less, RPE 8 or more — or, if you don\'t rate sets, reaching the target reps or time. Warm-ups don\'t count.')}</p>
-      <p><b>{t('Progress — 25')}</b><br />{t('Of the exercises you did that you had done before, the share you improved on: a higher estimated 1RM, or more reps or a longer hold where there is no weight.')}</p>
+      <p>{t('It is the average of three percentages, each counting for a third:')}</p>
+      <p><b>{t('Showing up')}</b><br />{t('Workouts this week against the days you planned (3 if you plan none) — all of them is 100%.')}</p>
+      <p><b>{t('Training hard')}</b><br />{t('The share of your working sets that were hard: RIR 2 or less, RPE 8 or more — or, if you don\'t rate sets, reaching the target reps or time. Warm-ups don\'t count.')}</p>
+      <p><b>{t('Progress')}</b><br />{t('Of the exercises you did that you had done before, the share you improved on: a higher estimated 1RM, or more reps or a longer hold where there is no weight.')}</p>
     </div>
   </>
 }
@@ -110,7 +111,7 @@ function TeamEffort({ members }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="small capitalize" style={{ fontWeight: m.you ? 700 : 500 }}>{m.name}{m.you ? ' · ' + t('you') : ''}</div>
             <div className="dim" style={{ fontSize: '.72rem' }}>
-              {t('Show up {0}', w.show)} · {t('Hard {0}', w.hard)} · {t('Progress {0}', w.prog)}
+              {t('Show up {0}%', w.show)} · {t('Hard {0}%', w.hard)} · {t('Progress {0}%', w.prog)}
             </div>
           </div>
           <b style={{ fontSize: 18, fontVariantNumeric: 'tabular-nums', minWidth: 34, textAlign: 'right', flex: 'none' }}>{w.score}</b>
