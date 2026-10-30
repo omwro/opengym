@@ -14,6 +14,7 @@
  * own state blob, so there is exactly one copy of anyone's training.
  */
 import crypto from 'node:crypto';
+import { effortWeeks } from './effort.js';
 
 const MAX_PLANS = 30;
 const NOTE_MAX = 500;
@@ -162,11 +163,14 @@ export function teamRoutes({ json, readBody, readSession, saveDb, db, readState,
     createdAt: team.createdAt,
     members: await Promise.all(memberUsers().map(async u => {
       const live = await livePresence(u.id);
+      const state = await readState(u.id);
       return {
         id: u.id, name: u.name, you: u.id === user.id,
         live: live ? { exIdx: live.exIdx, exTotal: live.exTotal, setsDone: live.setsDone, setsTotal: live.setsTotal, startedAt: live.startedAt, updatedAt: live.updatedAt } : null,
         poke: pokeOf(team, u.id),
-        ...summarize(await readState(u.id))
+        // the last eight weeks of effort scores, for the team chart (effort.js)
+        effort: effortWeeks(state),
+        ...summarize(state)
       };
     })),
     plans: (team.plans || []).map(p => ({

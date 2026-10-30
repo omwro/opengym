@@ -929,3 +929,14 @@ h4.sec{
 /* warm-up rows sit above the working sets: a "W" instead of a number, outlined, not filled */
 .setrow.warm .n{background:transparent;border:1px dashed var(--label-3);color:var(--orange);font-size:11px;font-weight:600}
 .setrow.warm.done .n{background:var(--orange);border-color:var(--orange);color:#000}
+
+/* categorical series for multi-line charts (team effort) — the validated reference palette,
+   stepped separately for each surface; colours follow the member, never their rank */
+:root{
+  --series-1:#3987e5;--series-2:#d95926;--series-3:#199e70;--series-4:#c98500;
+  --series-5:#d55181;--series-6:#008300;--series-7:#9085e9;--series-8:#e66767;
+}
+:root[data-theme="light"]{
+  --series-1:#2a78d6;--series-2:#eb6834;--series-3:#1baf7a;--series-4:#eda100;
+  --series-5:#e87ba4;--series-6:#008300;--series-7:#6250d6;--series-8:#e34948;
+}

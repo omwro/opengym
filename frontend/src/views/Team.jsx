@@ -20,6 +20,7 @@ import { inactivityNudge, teamIdle } from '../lib/nudge.js'
 const nudgeStyle = n => (n.level === 'strong' ? { color: 'var(--yellow)' } : { color: 'var(--label)' })
 const nudgeText = n => (n.level === 'strong' ? '👀 ' + n.text : n.text)
 import { EXIDX } from '../lib/exercises.js'
+import EffortChart, { colorSlots, seriesColor } from '../components/EffortChart.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button, TextField, Segmented } from '../components/ui.jsx'
 
@@ -60,6 +61,63 @@ function RenameSheet({ name: current, onChanged, close }) {
     <div style={{ height: 12 }} />
     <Button variant="primary" icon="check" disabled={!name.trim() || busy} onClick={save}>{t('Save')}</Button>
   </>
+}
+
+/* ============================ effort ============================ */
+
+// What the score is made of, for the (i) next to the chart. Mirrors api/effort.js.
+function EffortHelp() {
+  return <>
+    <h3>{t('Effort score')}</h3>
+    <div className="small" style={{ lineHeight: 1.5 }}>
+      <p>{t('Every week everyone gets a score out of 100, measured against their own plan and their own history — not against anyone else. Someone just starting and someone lifting twice as much can score the same.')}</p>
+      <p><b>{t('Showing up — 40')}</b><br />{t('Workouts this week against the days you planned (3 if you plan none).')}</p>
+      <p><b>{t('Training hard — 35')}</b><br />{t('The share of your working sets that were hard: RIR 2 or less, RPE 8 or more — or, if you don\'t rate sets, reaching the target reps or time. Warm-ups don\'t count.')}</p>
+      <p><b>{t('Progress — 25')}</b><br />{t('Of the exercises you did that you had done before, the share you improved on: a higher estimated 1RM, or more reps or a longer hold where there is no weight.')}</p>
+    </div>
+  </>
+}
+
+/**
+ * The team's effort, front and centre: the chart of the last eight weeks, this week's ranking
+ * with where each score comes from, and last week's winner. The ranking doubles as the chart's
+ * legend and its table view — each row carries the member's colour, name and number.
+ */
+function TeamEffort({ members }) {
+  const withData = members.filter(m => Array.isArray(m.effort) && m.effort.length)
+  if (!withData.length) return null
+  const slots = colorSlots(withData)
+  const n = withData[0].effort.length
+  const now = [...withData].sort((a, b) => b.effort[n - 1].score - a.effort[n - 1].score || a.name.localeCompare(b.name))
+  const lastWeek = [...withData].sort((a, b) => b.effort[n - 2].score - a.effort[n - 2].score)[0]
+  const beast = n > 1 && lastWeek.effort[n - 2].score > 0 ? lastWeek : null
+  return <div className="card">
+    <div className="row between" style={{ marginBottom: 4 }}>
+      <h2 style={{ margin: 0 }}>{t('Effort')}</h2>
+      <button className="iconbtn" aria-label={t('How is this scored?')} onClick={() => ui().openSheet(() => <EffortHelp />)}><Icon name="info" /></button>
+    </div>
+    <div className="muted small" style={{ marginBottom: 8 }}>{t('Last 8 weeks · scored against your own plan and history')}</div>
+    {beast && <div className="small" style={{ marginBottom: 8 }}>
+      🏆 {t('Beast of last week:')} <b>{beast.you ? t('you') : beast.name}</b> ({beast.effort[n - 2].score})
+    </div>}
+    <EffortChart members={withData} />
+    <div className="list" style={{ gap: 0, marginTop: 10 }}>
+      {now.map((m, i) => {
+        const w = m.effort[n - 1]
+        return <div key={m.id} className="row" style={{ gap: 8, padding: '7px 2px', borderTop: i ? '1px solid var(--sep)' : 'none' }}>
+          <span className="small dim" style={{ width: 16, textAlign: 'right' }}>{i + 1}</span>
+          <i style={{ width: m.you ? 14 : 10, height: m.you ? 4 : 2.5, borderRadius: 2, background: seriesColor(slots[m.id]), flex: 'none' }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="small capitalize" style={{ fontWeight: m.you ? 700 : 500 }}>{m.name}{m.you ? ' · ' + t('you') : ''}</div>
+            <div className="dim" style={{ fontSize: '.72rem' }}>
+              {t('Show up {0}', w.show)} · {t('Hard {0}', w.hard)} · {t('Progress {0}', w.prog)}
+            </div>
+          </div>
+          <b style={{ fontSize: 18, fontVariantNumeric: 'tabular-nums', minWidth: 34, textAlign: 'right', flex: 'none' }}>{w.score}</b>
+        </div>
+      })}
+    </div>
+  </div>
 }
 
 /* ============================ members ============================ */
@@ -460,9 +518,12 @@ export default function Team() {
       ]} />
     </div>
 
-    {tab === 'members' && <div className="list">
-      {members.map(m => <MemberRow key={m.id} m={m} onOpen={openMember} />)}
-    </div>}
+    {tab === 'members' && <>
+      <TeamEffort members={team.members} />
+      <div className="list">
+        {members.map(m => <MemberRow key={m.id} m={m} onOpen={openMember} />)}
+      </div>
+    </>}
 
     {tab === 'plans' && <>
       <Button variant="primary" icon="upload" onClick={share}>{t('Share my plan')}</Button>
