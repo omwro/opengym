@@ -51,11 +51,18 @@ export default function CoachIntake() {
   const toast = useUI(s => s.toast)
   const [step, setStep] = useState(0)
   const [busy, setBusy] = useState(false)
-  const [p, setP] = useState(() => ({
-    goal: null, experience: null, daysPerWeek: 3, preferredDays: [1, 3, 5],
-    sessionMin: 45, equipment: [], limitations: '', likes: '', dislikes: '', notes: '',
-    ...(S.coach?.profile || {})
-  }))
+  const [p, setP] = useState(() => {
+    const saved = S.coach?.profile || {}
+    return {
+      goal: null, experience: null, daysPerWeek: 3,
+      sessionMin: 45, limitations: '', likes: '', dislikes: '', notes: '',
+      ...saved,
+      // The two lists are read with .includes on every render: a saved profile without them
+      // (an older version, a backup) must not replace the defaults with nothing.
+      preferredDays: Array.isArray(saved.preferredDays) ? saved.preferredDays : [1, 3, 5],
+      equipment: Array.isArray(saved.equipment) ? saved.equipment : []
+    }
+  })
   const set = patch => setP(v => ({ ...v, ...patch }))
 
   if (!coachAvailable(config, user, { demo: DEMO, mobile: MOBILE })) { nav('/home', { replace: true }); return null }

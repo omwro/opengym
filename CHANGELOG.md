@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed: searching for an exercise could crash
+
+After taking a teammate's plan (or importing a plan file) that contained one of their own
+exercises, typing in the exercise search — when adding an exercise to a routine, or on the
+Exercises tab — failed with an error and showed nothing. That exercise had arrived without the
+equipment and target fields the search reads. Shared custom exercises now arrive complete, the
+ones already imported are repaired when the app opens, and the search no longer trips over a
+missing field.
+
 ### Effort, side by side
 
 The Team page now opens with **Effort**: a chart of the last 8 weeks with a smooth line for

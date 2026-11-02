@@ -111,7 +111,8 @@ export function mergePlan(s, bundle, { schedule } = {}) {
     if (same) { exIdMap[c.id] = same.id; return }
     const nid = uid()
     exIdMap[c.id] = nid
-    s.customEx.push({ id: nid, n: c.n, bp: c.bp, ...(c.desc ? { desc: c.desc } : {}) })
+    // the same shape a custom made in the app has, or searching for exercises breaks
+    s.customEx.push({ id: nid, n: c.n, bp: c.bp, tg: '', eq: 'custom', custom: true, ...(c.desc ? { desc: c.desc } : {}) })
   })
   const ridMap = {}
   bundle.routines.forEach(r => {
