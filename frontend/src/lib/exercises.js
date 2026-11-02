@@ -21,10 +21,30 @@ let customIds = []
 export function registerCustom(list) {
   customIds.forEach(id => delete EXIDX[id])
   customIds = (list || []).map(e => e.id)
-  ;(list || []).forEach(e => { EXIDX[e.id] = e })
+  ;(list || []).forEach(e => { if (e && e.id) EXIDX[e.id] = normalizeCustom(e) })
 }
+/**
+ * A custom exercise with every field the app reads from an exercise, whatever it came from.
+ * Customs made in the app always had them, but one arriving with a shared plan (a teammate's
+ * plan, a plan file) carried only a name and a body part — and searching for any exercise then
+ * crashed on its missing equipment. Stored customs are healed here too, so profiles that
+ * already imported such a plan work again without anything to redo.
+ */
+export const normalizeCustom = c => ({
+  ...c,
+  n: typeof c.n === 'string' && c.n.trim() ? c.n : 'custom exercise',
+  bp: typeof c.bp === 'string' ? c.bp : '',
+  tg: typeof c.tg === 'string' ? c.tg : '',
+  eq: typeof c.eq === 'string' && c.eq ? c.eq : 'custom',
+  custom: true
+})
+
 // Full searchable catalogue — customs first so your own exercises are easy to find.
-export const allExercises = st => [...(st.customEx || []), ...EXDB]
+export const allExercises = st => [...(st.customEx || []).filter(c => c && c.id).map(normalizeCustom), ...EXDB]
+
+/** Does an exercise match a search (already lower-cased)? Tolerates any missing field. */
+export const matchesQuery = (e, ql) => !ql
+  || [e.n, e.tg, e.eq, e.desc].some(v => typeof v === 'string' && v.toLowerCase().includes(ql))
 
 // Media normally sits next to the app (img/ and gif/, mounted into the web container).
 // A build can point them somewhere else — the demo build pulls them off a CDN instead of
