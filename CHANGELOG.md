@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Add warm-up sets during a workout
+
+Warm-ups no longer have to be planned beforehand. Every exercise in a workout has
+**+ Warm-up set** under its sets: each tap adds one above the working sets on the usual ramp —
+50 % × 10, then 70 % × 5, then 85 % × 3 — as a percentage of your working weight, so it moves
+with it. **− Remove warm-up** takes the last one off again. Like planned warm-ups, they never
+count towards progression, records or volume.
+
+Added or changed warm-ups on a routine's exercises are offered back at the finish:
+**Keep these warm-ups in Pull** saves them in the routine, and next time they are there from
+the start.
+
 ### The team's exercise notes, in Plan too
 
 The shared note on an exercise — “V-handle, seat on 4, the machine by the window” — was only

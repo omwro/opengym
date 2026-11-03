@@ -72,3 +72,36 @@ describe('warm-ups in the plan', async () => {
     expect(exLine({ id: LIFT, sets: 3, reps: 5, weight: 60, warmup: [{ pct: 50, reps: 10 }, { pct: 70, reps: 5 }] }, 'kg')).toBe('3 × 5 · 60 kg · +2 warm-up')
   })
 })
+
+describe('warm-ups added during a workout', async () => {
+  const { nextWarm, warmToPlan, warmupsToSave } = await import('./warmup.js')
+
+  it('suggests the same ramp as the plan editor, following the working weight', () => {
+    const a = nextWarm([], 100, 2.5)
+    expect(a).toEqual({ w: 50, r: 10, done: false, pct: 50, added: true })
+    const b = nextWarm([a], 100, 2.5)
+    expect(b).toMatchObject({ pct: 70, w: 70, r: 5 })
+    const c = nextWarm([a, b], 100, 2.5)
+    expect(c).toMatchObject({ pct: 85, w: 85, r: 3 })
+  })
+
+  it('turns the session\'s warm-ups into a plan: percentages where they followed, weights where typed', () => {
+    expect(warmToPlan([{ w: 50, r: 10, pct: 50 }, { w: 62.5, r: 5 }])).toEqual([{ pct: 50, reps: 10 }, { w: 62.5, reps: 5 }])
+  })
+
+  it('offers to keep only added warm-ups on the routine\'s own exercises', () => {
+    const routine = { ex: [{ id: 'bench' }, { id: 'row' }, { id: 'curl' }] }
+    const A = { entries: [
+      { id: 'bench', warm: [{ w: 50, r: 10, pct: 50, added: true }] },              // added → offer
+      { id: 'row', warm: [{ w: 40, r: 8, pct: 50 }] },                               // planned, untouched
+      { id: 'pulldown', warm: [{ w: 30, r: 10, pct: 50, added: true }] },           // not in the routine
+      { id: 'curl', swappedFrom: 'x', warm: [{ w: 10, r: 10, pct: 50, added: true }] } // a stand-in
+    ] }
+    expect(warmupsToSave(A, routine)).toEqual([{ exId: 'bench', warmup: [{ pct: 50, reps: 10 }] }])
+    expect(warmupsToSave(A, null)).toEqual([])
+    expect(nextWarm(undefined, 60, 2.5)).toMatchObject({ pct: 50, w: 30 })
+    // a planned warm-up changed during the session counts as well
+    expect(warmupsToSave({ entries: [{ id: 'row', warmEdited: true, warm: [{ w: 45, r: 8 }] }] }, routine))
+      .toEqual([{ exId: 'row', warmup: [{ w: 45, reps: 8 }] }])
+  })
+})
