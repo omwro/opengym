@@ -13,7 +13,8 @@ import { startFlow, freestylePicker, exercisePicker, exConfigSheet, exerciseDeta
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { Thumb } from '../components/Media.jsx'
-import { useNotes, notesAvailable } from '../lib/notes.js'
+import { useNotes } from '../lib/notes.js'
+import ExerciseNote from '../components/ExerciseNote.jsx'
 import { nextPrescription, applyPrescription, weightStep } from '../lib/progression.js'
 import { glyphOf } from '../lib/glyphs.js'
 import { refreshWarm, warmFor, workingWeight } from '../lib/warmup.js'
@@ -90,30 +91,7 @@ function ExerciseHistory({ exId }) {
 }
 const exerciseHistorySheet = exId => useUI.getState().openSheet(() => <ExerciseHistory exId={exId} />)
 
-/* ---------- shared note ---------- */
-function NoteEditor({ exId, note, close }) {
-  const save = useNotes(s => s.save)
-  const toast = useUI(s => s.toast)
-  const [text, setText] = useState(note?.text || '')
-  const [busy, setBusy] = useState(false)
-  const go = async () => {
-    setBusy(true)
-    try { await save(exId, text); close(); toast(text.trim() ? t('Note saved for everyone') : t('Note removed')) }
-    catch (e) { toast(e.message || t('Could not save the note')) }
-    finally { setBusy(false) }
-  }
-  return <>
-    <h3 className="capitalize">{exOr(exId).n}</h3>
-    <div className="muted small" style={{ marginBottom: 12 }}>{t('Shared with everyone on this server — which handle, which machine, seat height. Leave it empty to remove it.')}</div>
-    <textarea className="input" rows={4} maxLength={500} value={text} autoFocus
-      placeholder={t('e.g. V-handle, seat on 4, the machine by the window')}
-      onChange={e => setText(e.target.value)} style={{ resize: 'vertical', minHeight: 96 }} />
-    {note && <div className="dim small" style={{ marginTop: 6 }}>{t('Last edited by {0}', note.byName)}</div>}
-    <div style={{ height: 12 }} />
-    <Button variant="primary" icon="check" disabled={busy} onClick={go}>{t('Save')}</Button>
-  </>
-}
-const noteSheet = (exId, note) => useUI.getState().openSheet(close => <NoteEditor exId={exId} note={note} close={close} />)
+/* ---------- shared note: components/ExerciseNote.jsx ---------- */
 
 /* ---------- alternative exercise ----------
    The machine is taken: do something that trains the same thing instead. Suggestions lead
@@ -163,8 +141,6 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
   const plan = entry.plan
   // A dumbbell rack steps in 2 kg, plates in 2.5 — the +/- follows the equipment.
   const wStep = weightStep(entry.id, S.unit)
-  const note = useNotes(st => st.notes[entry.id])
-  const canNote = notesAvailable()
   const col1 = cardio ? { f: 'min', step: 1, dec: false, hd: t('Duration (min)') }
     : timed ? { f: 'sec', step: 5, dec: false, hd: t('Seconds') }
       : { f: 'w', step: wStep, dec: true, hd: t('Weight ({0})', S.unit) }
@@ -224,12 +200,7 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
     </div>
     {/* The team's note on this exercise — handles, machine, seat height. Shared, so the
         person who works it out once saves everyone else the same fiddling. */}
-    {canNote && (note
-      ? <button className="exnote tappable" style={{ display: 'block', width: '100%', textAlign: 'left', marginBottom: 8 }} onClick={() => noteSheet(entry.id, note)}>
-          <span className="row" style={{ gap: 6, alignItems: 'flex-start' }}><Icon name="pencil" style={{ flex: 'none', marginTop: 2, fontSize: 13 }} /><span style={{ whiteSpace: 'pre-wrap' }}>{note.text}</span></span>
-          <span className="dim" style={{ display: 'block', fontSize: '.72rem', marginTop: 4 }}>{note.byName} · {fmtDate(new Date(note.at).toISOString().slice(0, 10), true)}</span>
-        </button>
-      : <button className="dim small" style={{ marginBottom: 8, padding: '2px 0' }} onClick={() => noteSheet(entry.id, null)}>+ {t('Add a note for everyone (handles, machine, settings)')}</button>)}
+    <ExerciseNote exId={entry.id} />
     {last && <div className="small dim" style={{ marginBottom: 4 }}>{t('Last time')} ({fmtDate(last.d)}): {last.sets.map(s => setLabel(entry.id, s, last.target)).join(', ')}</div>}
     {plan && plan.why && plan.kind !== 'off' && <div className={'progline' + (plan.kind === 'deload' ? ' warn' : '')}>
       <Icon name={plan.kind === 'up' ? 'arrowUp' : plan.kind === 'deload' ? 'arrowDown' : 'lightbulb'} />

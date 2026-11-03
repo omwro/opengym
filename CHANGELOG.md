@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### The team's exercise notes, in Plan too
+
+The shared note on an exercise — “V-handle, seat on 4, the machine by the window” — was only
+visible once you were in a workout doing that exercise. It now shows where you plan too:
+
+- **In a routine**, under each exercise that has one (its first line).
+- **In an exercise's settings** in Plan — read it, add one, or change it right there.
+- **On the Exercises tab**, in an exercise's details.
+
+It is still one note per exercise for the whole team: a change in Plan is what everyone sees
+during their workout, and the other way round.
+
 ### Fixed: searching for an exercise could crash
 
 After taking a teammate's plan (or importing a plan file) that contained one of their own
