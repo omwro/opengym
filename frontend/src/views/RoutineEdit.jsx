@@ -12,6 +12,7 @@ import { glyphOf } from '../lib/glyphs.js'
 import { Button, SelectRow } from '../components/ui.jsx'
 import { POLICIES_FOR, POLICY_NAME, POLICY_DESC } from '../lib/progression.js'
 import BodyMap from '../components/BodyMap.jsx'
+import { useNotes, notesAvailable } from '../lib/notes.js'
 import { loadOfRoutine, rankOf, MUSCLE_NAME } from '../lib/muscles.js'
 
 export default function RoutineEdit() {
@@ -21,6 +22,9 @@ export default function RoutineEdit() {
   const update = useStore(s => s.update)
   const r = S.routines.find(x => x.id === id)
   useEffect(() => { if (!r) nav('/plan') }, [!!r])
+  // the team's notes, so each exercise in the list can show its one
+  const notes = useNotes(st => st.notes)
+  useEffect(() => { if (notesAvailable()) useNotes.getState().load({ maxAge: 60000 }) }, [])
   if (!r) return null
 
   const edit = fn => update(s => { fn(s.routines.find(x => x.id === id).ex) })
@@ -67,7 +71,13 @@ export default function RoutineEdit() {
           exConfigSheet(ex, e, cfg => edit(x => { x[i] = { id: x[i].id, sg: x[i].sg, ...cfg } }), () => edit(x => { x.splice(i, 1); cleanupSg(x) }), r)
         }}>
           <Thumb ex={ex} />
-          <div className="grow"><div className="tt capitalize">{ex.n}</div><div className="ss">{exLine(e, S.unit)}</div></div>
+          <div className="grow" style={{ minWidth: 0 }}><div className="tt capitalize">{ex.n}</div><div className="ss">{exLine(e, S.unit)}</div>
+            {/* the team's note, one line — the full note opens with the exercise */}
+            {notes[e.id] && <div className="dim row" style={{ fontSize: '.72rem', gap: 4, marginTop: 2, minWidth: 0 }}>
+              <Icon name="pencil" style={{ flex: 'none', fontSize: 11 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{notes[e.id].text}</span>
+            </div>}
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 'none', alignItems: 'center' }}>
             {i > 0 && <button className={'iconbtn' + (linkedPrev ? ' on-ss' : '')} title={t('Superset with exercise above')} style={{ width: 32, height: 28, borderRadius: 8, fontSize: 15 }} onClick={ev => { ev.stopPropagation(); toggleLink(i) }}><Icon name="link" /></button>}
             <div style={{ display: 'flex', gap: 2 }}>

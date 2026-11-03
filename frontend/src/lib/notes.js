@@ -11,9 +11,13 @@ import { useStore } from '../store/useStore.js'
 export const useNotes = create((set, get) => ({
   notes: {},
   loaded: false,
-  async load() {
+  loadedAt: 0,
+  // `maxAge`: skip the request when the notes are fresher than that — every screen that shows
+  // a note asks for them, and switching exercises should not mean a request each time.
+  async load({ maxAge = 0 } = {}) {
     if (!teamsAvailable(useStore.getState().user)) return
-    try { set({ notes: (await api('/api/team/notes')).notes || {}, loaded: true }) }
+    if (maxAge && Date.now() - get().loadedAt < maxAge) return
+    try { set({ notes: (await api('/api/team/notes')).notes || {}, loaded: true, loadedAt: Date.now() }) }
     catch { /* offline — keep whatever is on screen */ }
   },
   async save(exId, text) {
