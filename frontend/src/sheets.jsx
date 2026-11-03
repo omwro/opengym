@@ -513,9 +513,13 @@ function WarmupFields({ list, setList, workW, unit, wStep }) {
     if (kind === 'w' && x.pct != null) put(i, { w: warmupWeight(x, workW, wStep) || wStep * 8, reps: x.reps })
     if (kind === 'pct' && x.pct == null) put(i, { pct: workW > 0 ? Math.min(100, Math.max(5, Math.round(x.w / workW * 20) * 5)) : 50, reps: x.reps })
   }
+  // Nothing planned: one quiet line, the same as "+ Warm-up set" in a workout — most exercises
+  // never get warm-ups and the setting should not take up the sheet for them.
+  if (!list.length) return <button className="dim small" style={{ display: 'block', padding: '2px 0', marginBottom: 16 }} onClick={add}>
+    + {t('Warm-up set')}
+  </button>
   return <>
     <h4 className="sec">{t('Warm-up sets')}</h4>
-    {!list.length && <div className="small dim" style={{ marginBottom: 8 }}>{t('None. Warm-up sets come before the working sets and don’t count towards progression, records or volume.')}</div>}
     {list.map((x, i) => <div key={i} className="card" style={{ padding: 10, marginBottom: 8 }}>
       <div className="row between" style={{ marginBottom: 8, gap: 8 }}>
         <span className="small muted">{t('Warm-up {0}', i + 1)}{x.pct != null && workW > 0 ? ' · ≈ ' + fmtNum(warmupWeight(x, workW, wStep)) + ' ' + unit : ''}</span>
@@ -532,8 +536,8 @@ function WarmupFields({ list, setList, workW, unit, wStep }) {
         <Stepper label={t('Reps')} value={x.reps} step={1} decimal={false} onChange={v => put(i, { ...x, reps: v })} />
       </div>
     </div>)}
-    <Button size="sm" icon="plus" disabled={list.length >= MAX_WARMUP} onClick={add}>{t('Add warm-up set')}</Button>
-    <div style={{ height: 18 }} />
+    <button className="dim small" style={{ display: 'block', padding: '2px 0' }} disabled={list.length >= MAX_WARMUP} onClick={add}>+ {t('Warm-up set')}</button>
+    <div style={{ height: 16 }} />
   </>
 }
 
