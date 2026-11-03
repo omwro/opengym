@@ -17,7 +17,7 @@ import { useNotes } from '../lib/notes.js'
 import ExerciseNote from '../components/ExerciseNote.jsx'
 import { nextPrescription, applyPrescription, weightStep } from '../lib/progression.js'
 import { glyphOf } from '../lib/glyphs.js'
-import { refreshWarm, warmFor, workingWeight } from '../lib/warmup.js'
+import { refreshWarm, warmFor, workingWeight, nextWarm } from '../lib/warmup.js'
 
 /* ---------- start chooser (no active workout) ---------- */
 function StartChooser() {
@@ -124,7 +124,7 @@ function SwapSheet({ exId, onPick, close }) {
   </>
 }
 
-function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onStartTimed, onSwap, onToggleWarm, onWarmField }) {
+function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onStartTimed, onSwap, onToggleWarm, onWarmField, onAddWarm, onRemoveWarm }) {
   const S = useStore(s => s.S)
   const working = useUI(s => s.work)
   const entry = S.active.entries[entryIdx]
@@ -232,6 +232,13 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
         <Button size="sm" icon="minus" disabled={entry.sets.length <= 1} onClick={onRemoveSet}>{t('Remove set')}</Button>
         <Button size="sm" icon="plus" onClick={onAddSet}>{t('Add set')}</Button>
       </div>
+      {/* Warm-ups can be added on the spot too: they go above the working sets as a percentage of
+          the working weight, and never count towards progression, records or volume. */}
+      {mode === 'reps' && <div className="row" style={{ marginTop: 6, gap: 12, justifyContent: 'center' }}>
+        <button className="dim small" style={{ padding: '4px 0' }} onClick={onAddWarm}>+ {t('Warm-up set')}</button>
+        {warm.length > 0 && !warm[warm.length - 1].done &&
+          <button className="dim small" style={{ padding: '4px 0' }} onClick={onRemoveWarm}>− {t('Remove warm-up')}</button>}
+      </div>}
     </div>
   </>
 }
@@ -347,6 +354,13 @@ function ActiveWorkout() {
   const setWarmField = (idx, i, field, v) => mutEntry(idx, e => {
     e.warm[i][field] = v
     if (field === 'w') delete e.warm[i].pct
+    e.warmEdited = true                    // offered to keep in the routine at the finish
+  })
+  const addWarm = idx => mutEntry(idx, e => {
+    e.warm = [...(e.warm || []), nextWarm(e.warm, workingWeight(e.sets), weightStep(e.id, S.unit))]
+  })
+  const removeWarm = idx => mutEntry(idx, e => {
+    if (e.warm?.length && !e.warm[e.warm.length - 1].done) { e.warm.pop(); e.warmEdited = true }
   })
   const toggleWarm = (idx, i) => mutEntry(idx, e => {
     e.warm[i].done = !e.warm[i].done
@@ -457,11 +471,11 @@ function ActiveWorkout() {
           {unit.map((idx, k) => <div key={idx} className="ss-ex">
             {k > 0 && <div className="ss-amp">+</div>}
             <ExerciseBlock entryIdx={idx} compact
-              onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onStartTimed={i => startTimed(idx, i)} onSwap={() => swap(idx)} onToggleWarm={i => toggleWarm(idx, i)} onWarmField={(i, f, v) => setWarmField(idx, i, f, v)} />
+              onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onStartTimed={i => startTimed(idx, i)} onSwap={() => swap(idx)} onToggleWarm={i => toggleWarm(idx, i)} onWarmField={(i, f, v) => setWarmField(idx, i, f, v)} onAddWarm={() => addWarm(idx)} onRemoveWarm={() => removeWarm(idx)} />
           </div>)}
         </div>
       ) : (
-        <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swap(cur)} onToggleWarm={i => toggleWarm(cur, i)} onWarmField={(i, f, v) => setWarmField(cur, i, f, v)} />
+        <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onStartTimed={i => startTimed(cur, i)} onSwap={() => swap(cur)} onToggleWarm={i => toggleWarm(cur, i)} onWarmField={(i, f, v) => setWarmField(cur, i, f, v)} onAddWarm={() => addWarm(cur)} onRemoveWarm={() => removeWarm(cur)} />
       )}
     </> : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}
       <div style={{ height: 14 }} /><Button variant="primary" icon="plus" onClick={freestylePicker}>{t('Add exercise')}</Button></div>}

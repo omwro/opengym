@@ -144,11 +144,26 @@ export function sessionsFor(S, exId, fallback) {
   return out
 }
 
-// How many sessions in a row ended in a miss, counting back from the most recent.
-export function stallCount(sessions) {
+const repTotal = s => (s.reps || []).reduce((n, r) => n + r, 0)
+
+/**
+ * How many sessions in a row ended in a miss, counting back from the most recent.
+ *
+ * `climb` is for double progression, where not reaching the top of the range is the normal
+ * state of things rather than a miss: you are meant to spend several sessions at one weight,
+ * adding reps. There a session is only a stall when it did not move: the same weight as the one
+ * before and no more reps in total. More reps is progress, and the first session at a heavier
+ * weight is a fresh start — it sits at the bottom of the range by design. Counting those as
+ * stalls deloaded people in the middle of a climb (8·8·8 → 9·9·9 → 10·10·8 read as
+ * "stalled 3 sessions").
+ */
+export function stallCount(sessions, { climb = false } = {}) {
   let n = 0
   for (let i = sessions.length - 1; i >= 0; i--) {
-    if (sessions[i].ok) break
+    const s = sessions[i]
+    if (s.ok) break
+    const prev = sessions[i - 1]
+    if (climb && prev && (s.weight > prev.weight || (s.weight === prev.weight && repTotal(s) > repTotal(prev)))) break
     n++
   }
   return n
@@ -173,7 +188,7 @@ export function nextPrescription(S, cfg, routine) {
   const last = sessions[sessions.length - 1]
   if (!last) return { policy, kind: 'first', why: ['Nothing logged yet — this session sets the baseline.'] }
 
-  const stalls = stallCount(sessions)
+  const stalls = stallCount(sessions, { climb: policy === 'double' })
   const deloadAt = DELOAD_AFTER[policy] || 3
 
   if (mode === 'time') {

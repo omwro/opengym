@@ -22,7 +22,7 @@ import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, weightStep, POLICIES_FOR, POLICY_NAME, POLICY_DESC } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
 import { freestyleTarget, routineFromWorkout } from './lib/freestyle.js'
-import { normalizeWarmup, warmupWeight, warmFor, MAX_WARMUP } from './lib/warmup.js'
+import { normalizeWarmup, warmupWeight, warmFor, warmupsToSave, warmupText, MAX_WARMUP } from './lib/warmup.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -513,9 +513,13 @@ function WarmupFields({ list, setList, workW, unit, wStep }) {
     if (kind === 'w' && x.pct != null) put(i, { w: warmupWeight(x, workW, wStep) || wStep * 8, reps: x.reps })
     if (kind === 'pct' && x.pct == null) put(i, { pct: workW > 0 ? Math.min(100, Math.max(5, Math.round(x.w / workW * 20) * 5)) : 50, reps: x.reps })
   }
+  // Nothing planned: one quiet line, the same as "+ Warm-up set" in a workout — most exercises
+  // never get warm-ups and the setting should not take up the sheet for them.
+  if (!list.length) return <button className="dim small" style={{ display: 'block', padding: '2px 0', marginBottom: 16 }} onClick={add}>
+    + {t('Warm-up set')}
+  </button>
   return <>
     <h4 className="sec">{t('Warm-up sets')}</h4>
-    {!list.length && <div className="small dim" style={{ marginBottom: 8 }}>{t('None. Warm-up sets come before the working sets and don’t count towards progression, records or volume.')}</div>}
     {list.map((x, i) => <div key={i} className="card" style={{ padding: 10, marginBottom: 8 }}>
       <div className="row between" style={{ marginBottom: 8, gap: 8 }}>
         <span className="small muted">{t('Warm-up {0}', i + 1)}{x.pct != null && workW > 0 ? ' · ≈ ' + fmtNum(warmupWeight(x, workW, wStep)) + ' ' + unit : ''}</span>
@@ -532,8 +536,8 @@ function WarmupFields({ list, setList, workW, unit, wStep }) {
         <Stepper label={t('Reps')} value={x.reps} step={1} decimal={false} onChange={v => put(i, { ...x, reps: v })} />
       </div>
     </div>)}
-    <Button size="sm" icon="plus" disabled={list.length >= MAX_WARMUP} onClick={add}>{t('Add warm-up set')}</Button>
-    <div style={{ height: 18 }} />
+    <button className="dim small" style={{ display: 'block', padding: '2px 0' }} disabled={list.length >= MAX_WARMUP} onClick={add}>+ {t('Warm-up set')}</button>
+    <div style={{ height: 16 }} />
   </>
 }
 
@@ -1032,7 +1036,36 @@ function SaveAsRoutine({ w }) {
   </div>
 }
 
-function FinishSummary({ w, prs, e1prs = [], close }) {
+/**
+ * Warm-ups added or changed during a routine's workout, offered back to the routine: one tap and
+ * next time they are planned. Replaces what the routine had for those exercises; nothing is
+ * changed without the tap.
+ */
+function KeepWarmups({ keep, routineId }) {
+  const st = useStore(s => s.S)
+  const [saved, setSaved] = useState(false)
+  const r = st.routines.find(x => x.id === routineId)
+  if (!r || !keep.length) return null
+  const save = () => {
+    update(s => {
+      const rr = s.routines.find(x => x.id === routineId)
+      if (!rr) return
+      keep.forEach(k => rr.ex.forEach(e => { if (e.id === k.exId) e.warmup = k.warmup }))
+    })
+    setSaved(true)
+  }
+  return <div style={{ textAlign: 'left', marginTop: 14 }}>
+    <h4 className="sec">{t('Warm-ups')}</h4>
+    <div className="small muted" style={{ marginBottom: 8 }}>
+      {keep.map(k => <div key={k.exId} className="capitalize">{(EXIDX[k.exId] || {}).n || k.exId}: <span className="dim" style={{ textTransform: 'none' }}>{k.warmup.map(x => warmupText(x, st.unit)).join(', ')}</span></div>)}
+    </div>
+    {saved
+      ? <div className="small accent row" style={{ gap: 5 }}><Icon name="check" />{t('Saved in {0} for next time', r.name)}</div>
+      : <Button icon="plus" onClick={save}>{t('Keep these warm-ups in {0}', r.name)}</Button>}
+  </div>
+}
+
+function FinishSummary({ w, prs, e1prs = [], keep = [], close }) {
   const st = useStore(s => s.S)
   const coachOn = !!useStore(s => s.config)?.coach?.enabled && !!st.coach?.consent?.agreedAt
   return <div style={{ textAlign: 'center', padding: '8px 0' }}>
@@ -1055,6 +1088,7 @@ function FinishSummary({ w, prs, e1prs = [], close }) {
     <BodyMap load={loadOfWorkouts([w])} body={st.body} />
     {coachOn && <SessionRating w={w} />}
     {!w.routineId && w.entries.length > 0 && <SaveAsRoutine w={w} />}
+    {w.routineId && keep.length > 0 && <KeepWarmups keep={keep} routineId={w.routineId} />}
     <div style={{ height: 14 }} />
     {/* replace, not push: the workout screen behind it is empty now, and back from Home
         should not land on it */}
@@ -1102,6 +1136,8 @@ function doFinishWorkout({ end = Date.now(), auto = false } = {}) {
     prs
   }
   w.vol = workoutVolume(w)
+  // warm-ups added or changed on the spot, before the session they live in is cleared
+  const keep = auto ? [] : warmupsToSave(A, st.routines.find(r => r.id === A.routineId))
   update(s => {
     w.entries.forEach(e => {
       const mx = Math.max(0, ...e.sets.filter(x => x.done).map(x => x.w || 0), e.topW || 0)
@@ -1112,7 +1148,7 @@ function doFinishWorkout({ end = Date.now(), auto = false } = {}) {
   })
   useUI.getState().stopRest()
   if (!auto) { beep(snd(), 1047, 0.4); beep(snd(), 1319, 0.4, 0.14); beep(snd(), 1568, 0.4, 0.28); beep(snd(), 2093, 0.8, 0.42) }
-  ui().openSheet(close => <FinishSummary w={w} prs={prs} e1prs={e1prs} close={close} />, { kind: 'center', locked: true })
+  ui().openSheet(close => <FinishSummary w={w} prs={prs} e1prs={e1prs} keep={keep} close={close} />, { kind: 'center', locked: true })
 }
 
 /**

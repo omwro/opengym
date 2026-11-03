@@ -71,3 +71,36 @@ export function warmFor(cfg, sets, exId, unit) {
 
 /** "50 % × 10" / "20 kg × 8" — one planned warm-up, for the plan screens. */
 export const warmupText = (item, unit) => (item.pct != null ? `${item.pct} % × ${item.reps}` : `${item.w} ${unit} × ${item.reps}`)
+
+/* ---------- added during a workout ---------- */
+
+/**
+ * The next warm-up set to add mid-workout, on the same ramp the plan editor suggests:
+ * 50 % × 10, then 70 % × 5, then 85 % × 3 and closer — each a percentage of the working weight
+ * so it follows it like a planned one. Marked `added` so the finish can offer to keep it.
+ */
+export function nextWarm(warm, workW, step) {
+  const list = warm || []
+  const last = list[list.length - 1]
+  const pct = !last ? 50 : last.pct != null ? Math.min(95, last.pct + (last.pct < 70 ? 20 : 15)) : 70
+  const r = !last ? 10 : Math.max(1, (last.r || 5) - ((last.r || 5) > 5 ? 5 : 2))
+  return { w: warmupWeight({ pct }, workW, step), r, done: false, pct, added: true }
+}
+
+/** A session's warm-up sets as a plan: a percentage where it still followed the work, else the weight. */
+export const warmToPlan = warm => normalizeWarmup((warm || []).map(s => (s.pct != null ? { pct: s.pct, reps: s.r } : { w: s.w, reps: s.r })))
+
+/**
+ * The warm-ups worth offering to keep after a workout: exercises from the routine (not a stand-in
+ * swapped in for the day) where warm-up sets were added, changed or removed during the session
+ * (`added` on a set, `warmEdited` on the entry).
+ * [{ exId, warmup }] — `warmup` replaces what the routine had for that exercise.
+ */
+export function warmupsToSave(A, routine) {
+  if (!A || !routine) return []
+  const inPlan = new Set((routine.ex || []).map(e => e.id))
+  return (A.entries || [])
+    .filter(e => inPlan.has(e.id) && !e.swappedFrom && (e.warmEdited || (e.warm || []).some(s => s.added)))
+    .map(e => ({ exId: e.id, warmup: warmToPlan(e.warm) }))
+    .filter(x => x.warmup.length)
+}
