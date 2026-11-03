@@ -256,6 +256,27 @@ describe('double progression', () => {
     expect(p.reps).toBeLessThanOrEqual(12)
   })
 
+  it('a climb through the range is progress, not a stall — no deload mid-climb', () => {
+    // the real history that triggered "Stalled 3 sessions — deload to 10 kg": incline curls,
+    // up to 12 kg after hitting 10 × 10, then 8·8·8 → 9·9·9 → 10·10·8 at 12 kg
+    const c = { id: LIFT, sets: 3, reps: 10, repsMin: 8, weight: 12, prog: 'double' }
+    const rows = [[10, 10, 10, 10], [12, 8, 8, 8], [12, 9, 9, 9], [12, 10, 10, 8]]
+    const p = nextPrescription(hist(LIFT, rows, { sets: 3, reps: 10 }), c)
+    expect(p.kind).toBe('hold')
+    expect(p.weight).toBe(12)
+    expect(p.reps).toBe(9)              // worst set was 8 → aim for 9
+  })
+
+  it('counts a session at the same weight with no more reps as a stall, and only those', () => {
+    const S = rows => sessionsFor(hist(LIFT, rows, { sets: 3, reps: 12 }), LIFT)
+    expect(stallCount(S([[40, 9, 9, 9], [40, 9, 9, 9]]), { climb: true })).toBe(2)
+    expect(stallCount(S([[40, 9, 9, 9], [40, 10, 9, 9]]), { climb: true })).toBe(0)
+    expect(stallCount(S([[40, 12, 12, 12], [42.5, 8, 8, 8]]), { climb: true })).toBe(0)
+    // went backwards: a stall — and so is a very first session short of the top, with nothing before it
+    expect(stallCount(S([[40, 10, 10, 10], [40, 9, 9, 9]]), { climb: true })).toBe(2)
+    expect(stallCount(S([[35, 12, 12, 12], [40, 10, 10, 10], [40, 9, 9, 9]]), { climb: true })).toBe(1)
+  })
+
   it('deloads after a run of stalls and restarts at the bottom of the range', () => {
     const rows = [[40, 9, 9, 9], [40, 9, 9, 9], [40, 9, 9, 9]]
     const p = nextPrescription(hist(LIFT, rows, { sets: 3, reps: 12 }), cfg)

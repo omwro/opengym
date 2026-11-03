@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed: double progression deloaded you in the middle of a climb
+
+Under double progression you stay on a weight and add reps until every set reaches the top of
+the range. The app counted every session short of the top as a stall — so 8·8·8, then 9·9·9,
+then 10·10·8 at 12 kg read as "Stalled 3 sessions — deload to 10 kg", three sessions of
+progress punished as failure. A session now only counts as a stall when it did not move: the
+same weight as the time before and no more reps in total. The first session at a heavier weight
+never counts — starting at the bottom of the range is the point.
+
 ### Add warm-up sets during a workout
 
 Warm-ups no longer have to be planned beforehand. Every exercise in a workout has
