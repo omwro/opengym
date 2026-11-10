@@ -3,7 +3,7 @@ import { useStore } from './store/useStore.js'
 import { useUI } from './store/useUI.js'
 import { EXDB, EXIDX, BODYPARTS, isCardio, allExercises, equipmentOf, matchesQuery } from './lib/exercises.js'
 import { fmtDate, fmtNum, fmtVol, fmtDur, durPart, todayISO, uid, exCount, DAYN, MONTHS_LONG, ACCENTS } from './lib/format.js'
-import { lastEntryFor, bestWeightFor, buildSets, effectiveRoutineId, workoutVolume, setsDone, setsDoneActive, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf } from './lib/history.js'
+import { nextOpenUnit, lastEntryFor, bestWeightFor, buildSets, effectiveRoutineId, workoutVolume, setsDone, setsDoneActive, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf } from './lib/history.js'
 import { beep, vibrate } from './lib/sound.js'
 import { t, instrFor, getLang, INSTR_LANGS, dateLocale } from './lib/i18n.js'
 import { nav } from './lib/nav.js'
@@ -934,7 +934,10 @@ function TopWeight({ entryIdx, close }) {
   const unit = entry ? unitOf(units, entryIdx) : []
   const unitDone = !!entry && unit.every(i => A.entries[i].sets.every(s => s.done))
   const unitIdx = units.findIndex(u => u === unit)
-  const isLastUnit = unitIdx === units.length - 1
+  // where "next" goes: the next exercise with sets still to do, wrapping round — -1 when this
+  // was the last open one, whatever its place in the list
+  const nextOpen = A ? nextOpenUnit(units, A.entries, unitIdx) : -1
+  const allDone = unitDone && nextOpen === -1
   if (!entry || !ex) return null
 
   const commit = advance => {
@@ -947,8 +950,8 @@ function TopWeight({ entryIdx, close }) {
     })
     close()
     if (advance && unitDone) {
-      if (isLastUnit) workoutCompleteSheet()               // whole workout done → finish/continue prompt
-      else update(s => { s.active.cur = units[unitIdx + 1][0] })
+      if (allDone) workoutCompleteSheet()                  // every set done → finish/continue prompt
+      else update(s => { s.active.cur = units[nextOpen][0] })
     } else toast(t('Tracked — next time starts at {0}', fmtNum(S().exWeights[entry.id].w) + ' ' + st.unit))
   }
   return <>
@@ -958,7 +961,7 @@ function TopWeight({ entryIdx, close }) {
     <div style={{ height: 10 }} />
     {prevBest > 0 ? <div className="small dim" style={{ textAlign: 'center', marginBottom: 12 }}>{t('Previous best:')} {fmtNum(prevBest)} {st.unit}{maxSet > prevBest && <span style={{ color: 'var(--yellow)' }}> — {t('new record!')}</span>}</div> : <div style={{ height: 4 }} />}
     {unitDone ? <>
-      <Button variant="primary" trailingIcon={isLastUnit ? null : 'chevronRight'} onClick={() => commit(true)}>{isLastUnit ? t('Save') : t('Save & next exercise')}</Button>
+      <Button variant="primary" trailingIcon={allDone ? null : 'chevronRight'} onClick={() => commit(true)}>{allDone ? t('Save') : t('Save & next exercise')}</Button>
       <div style={{ height: 8 }} /><Button variant="ghost" className="dim" onClick={() => commit(false)}>{t('Just close')}</Button>
     </> : <Button variant="primary" onClick={() => commit(false)}>{t('Save weight')}</Button>}
   </>
