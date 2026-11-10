@@ -319,3 +319,24 @@ describe('workoutVolume', () => {
     expect(workoutVolume(w)).toBe(600)
   })
 })
+
+import { nextOpenUnit } from './history.js'
+
+describe('nextOpenUnit', () => {
+  const ent = done => done.map(d => ({ sets: d.map(x => ({ done: x })) }))
+  const units = [[0], [1], [2]]
+
+  it('finishing the last exercise first is not finishing the workout: next open is the first', () => {
+    expect(nextOpenUnit(units, ent([[false], [false], [true]]), 2)).toBe(0)
+  })
+  it('moves forward to the next unfinished one, skipping done ones', () => {
+    expect(nextOpenUnit(units, ent([[false], [true], [false]]), 0)).toBe(2)
+  })
+  it('is -1 only when every set of every exercise is done', () => {
+    expect(nextOpenUnit(units, ent([[true], [true, true], [true]]), 1)).toBe(-1)
+    expect(nextOpenUnit(units, ent([[true], [true, false], [true]]), 2)).toBe(1)
+  })
+  it('treats a superset as one unit', () => {
+    expect(nextOpenUnit([[0, 1], [2]], ent([[true], [false], [true]]), 1)).toBe(0)
+  })
+})

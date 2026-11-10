@@ -232,6 +232,20 @@ export function supersetUnits(items) {
 }
 export function unitOf(units, idx) { return units.find(u => u.includes(idx)) || [idx] }
 
+/**
+ * The next exercise (or superset) that still has sets to do, looking forward from unit `from`
+ * and wrapping round to the start — or -1 when every set of the workout is done. Workouts are not
+ * always done in order: finishing the last exercise first is not finishing the workout.
+ */
+export function nextOpenUnit(units, entries, from) {
+  const open = u => u.some(i => (entries[i]?.sets || []).some(s => !s.done))
+  for (let k = 1; k <= units.length; k++) {
+    const j = (from + k) % units.length
+    if (open(units[j])) return j
+  }
+  return -1
+}
+
 export function streakWeeks(S) {
   if (!S.workouts.length) return 0
   const weeks = new Set(S.workouts.map(w => weekKey(w.d)))

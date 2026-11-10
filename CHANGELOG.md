@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed: doing the last exercise first no longer "finishes" the workout
+
+Ticking off the last exercise in the list announced “That's the whole workout!”, even when you
+had simply done it first and everything else was still open. The workout now counts as done
+only when every set of every exercise is. And “Save & next exercise” takes you to the next one
+that still has sets to do — back to the top of the list if that is where they are.
+
 ### Fixed: double progression deloaded you in the middle of a climb
 
 Under double progression you stay on a weight and add reps until every set reaches the top of
